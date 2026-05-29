@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Proficon" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/brand_navy</item>
+        <item name="android:navigationBarColor">@color/brand_navy</item>
+        <item name="android:windowBackground">@color/brand_navy</item>
+    </style>
+
+    <style name="Theme.Proficon.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/brand_navy</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/proficon_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.Proficon</item>
+    </style>
+</resources>
