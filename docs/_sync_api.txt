@@ -1,0 +1,17 @@
+﻿authApi('/api/sync/' + serverKey, { method: 'PUT', body: JSON.stringify({ json: jsonVal }) }).catch(function () {});
+}
+
+function __syncScheduleKey(serverKey) {
+  if (__syncTimers[serverKey]) clearTimeout(__syncTimers[serverKey]);
+  __syncTimers[serverKey] = setTimeout(function () {
+    __syncTimers[serverKey] = null;
+    var payload = __syncBuildPayload(serverKey);
+    if (payload == null) return;
+    __syncPut(serverKey, payload);
+  }, 700);
+}
+
+function __syncHydrate(serverKey, json) {
+  var put = __origSetItem || localStorage.setItem.bind(localStorage);
+  if (serverKey === 'settings') {
+    

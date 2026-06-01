@@ -1,0 +1,71 @@
+﻿g:'',interval:1,easeFactor:2.5,nextReview:0,reps:0},
+];
+let words = [];
+let nextId = 1;
+
+function recomputeNextIdFromWords() {
+  var max = 0;
+  for (var i = 0; i < words.length; i++) {
+    var id = Number(words[i].id);
+    if (isFinite(id) && id > max) max = id;
+  }
+  nextId = max + 1;
+}
+
+var __vocabSaveTimer = null;
+function schedulePersistVocabulary() {
+  if (__vocabSaveTimer) clearTimeout(__vocabSaveTimer);
+  __vocabSaveTimer = setTimeout(function () {
+    __vocabSaveTimer = null;
+    fetch('/api/sync/vocabulary', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ json: { words: words } }),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+      })
+      .catch(function (e) {
+        console.warn('schedulePersistVocabulary', e);
+        showToast('ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ ÑÐ¾ÑÑÐ°Ð½Ð¸ÑÑ ÑÐ»Ð¾Ð²Ð°ÑÑ Ð½Ð° ÑÐµÑÐ²ÐµÑÐµ');
+      });
+  }, 400);
+}
+
+async function loadVocabularyFromServer() {
+  try {
+    var r = await fetch('/api/sync/vocabulary', { credentials: 'include' });
+    if (r.status === 204) { words = DEFAULT_VOCAB_SEED.slice(); recomputeNextIdFromWords(); return; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+    var w = data && data.json && data.json.words;
+    if (Array.isArray(w) && w.length) {
+      words = w;
+      recomputeNextIdFromWords();
+      return;
+    }
+  } catch (e) {
+    console.warn('loadVocabularyFromServer', e);
+  }
+  words = DEFAULT_VOCAB_SEED.slice();
+  recomputeNextIdFromWords();
+}
+let videoCards = [];
+let nextVcId = 1;
+let sessions = 0;
+let ratingHistory = [];
+let currentDeck = 'all';
+let currentWordFilter = '';
+let currentTagFilter = 'all';
+/** 'cards' | 'table' */
+let vocabViewMode = 'cards';
+var VOCAB_VIEW_MODE_KEY = 'proficonq_vocab_view_mode_v1';
+/** ÐÐ¾Ð»Ð¸ ÑÐ¸ÑÐ¸Ð½Ñ ÑÑÐ¾Ð»Ð±ÑÐ¾Ð² ÑÐ°Ð±Ð»Ð¸ÑÑ ÑÐ»Ð¾Ð²Ð°ÑÑ (7 ÑÑÐ¾Ð»Ð±ÑÐ¾Ð²: â + Ð´Ð°Ð½Ð½ÑÐµ + Ð´ÐµÐ¹ÑÑÐ²Ð¸Ñ), ÑÑÐ¼Ð¼Ð° 100. */
+var VOCAB_TABLE_COL_PCT_KEY = 'proficonq_vocab_table_col_pct_v1';
+var VOCAB_TABLE_COL_COUNT = 7;
+/* â, PT, RU, ÑÐ¸Ð¿, Ð¸Ð½Ñ., Ð¿ÑÐ¸Ð¼ÐµÑ, Ð´ÐµÐ¹ÑÑÐ²Ð¸Ñ â Ð¿ÑÐ°Ð²ÑÐ¼ ÐºÐ¾Ð»Ð¾Ð½ÐºÐ°Ð¼ Ð±Ð¾Ð»ÑÑÐµ Ð´Ð¾Ð»Ð¸ Ð¿Ð¾ ÑÐ¼Ð¾Ð»ÑÐ°Ð½Ð¸Ñ */
+var VOCAB_TABLE_COL_DEFAULT = [3.5, 16, 17, 13, 9, 24, 17.5];
+var VOCAB_UI_FONT_SIZE_KEY = 'proficonq_vocab_ui_font_size_v1';
+var VOCAB_UI_FONT_FAMILY_KEY = 'proficonq_vocab_ui_font_family_v1';
+/** ÐÑÐ±ÑÐ°Ð½Ð½ÑÐµ id ÑÑÑ

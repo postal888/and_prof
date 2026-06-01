@@ -1,0 +1,10 @@
+﻿DEFAULT_VOCAB_SEED = [
+  {id:1,word:'falar',translation:'Ð³Ð¾Ð²Ð¾ÑÐ¸ÑÑ',example:'Eu falo portuguÃªs todos os dias.',tag:'verbo',infinitivo:'falar',img:'',interval:1,easeFactor:2.5,nextReview:0,reps:0},
+  {id:2,word:'casa',translation:'Ð´Ð¾Ð¼',example:'A minha casa Ã© grande.',tag:'substantivo',img:'',interval:1,easeFactor:2.5,nextReview:0,reps:2},
+  {id:3,word:'trabalhar',translation:'ÑÐ°Ð±Ð¾ÑÐ°ÑÑ',example:'Ela trabalha muito.',tag:'verbo',infinitivo:'trabalhar',img:'',interval:3,easeFactor:2.5,nextReview:Date.now()+86400000,reps:1},
+  {id:4,word:'bonito',translation:'ÐºÑÐ°ÑÐ¸Ð²ÑÐ¹',example:'O Brasil Ã© muito bonito.',tag:'adjetivo',img:'',interval:1,easeFactor:2.5,nextReview:0,reps:0},
+  {id:5,word:'obrigado',translation:'ÑÐ¿Ð°ÑÐ¸Ð±Ð¾',example:'Obrigado pela ajuda!',tag:'expressÃ£o',img:'',interval:2,easeFactor:2.5,nextReview:0,reps:1},
+  {id:6,word:'cidade',translation:'Ð³Ð¾ÑÐ¾Ð´',example:'SÃ£o Paulo Ã© uma cidade grande.',tag:'substantivo',img:'',interval:1,easeFactor:2.5,nextReview:Date.now()+2*86400000,reps:0},
+  {id:7,word:'comer',translation:'ÐµÑÑÑ, ÐºÑÑÐ°ÑÑ',example:'Vamos comer juntos.',tag:'verbo',infinitivo:'comer',img:'',interval:1,easeFactor:2.5,nextReview:0,reps:0},
+  {id:8,word:'Ã¡gua',translation:'Ð²Ð¾Ð´Ð°',example:'Posso tomar Ã¡gua?',tag:'substantivo',img:'',interval:1,easeFactor:2.5,nextReview:0,reps:3},
+  {id:9,word:'por favor',translation:'Ð¿Ð¾Ð¶Ð°Ð»ÑÐ¹ÑÑÐ°',example:'Um cafÃ©, por favor.',tag:'frase',img:'',interval:1,easeFactor:2.5

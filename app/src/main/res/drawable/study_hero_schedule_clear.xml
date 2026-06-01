@@ -1,0 +1,39 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- Fallback / launcher-adjacent vector; primary UI uses StudyMilestoneIllustration (Compose). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="140dp"
+    android:height="140dp"
+    android:viewportWidth="140"
+    android:viewportHeight="140">
+    <path
+        android:fillColor="#262E9348"
+        android:pathData="M70,70m-58,0a58,58 0,1 1,116 0a58,58 0,1 1,-116 0" />
+    <path
+        android:fillColor="#1A1A26"
+        android:pathData="M32,44h76a12,12 0,0 1,12 12v38a12,12 0,0 1,-12 12H32a12,12 0,0 1,-12 -12V56a12,12 0,0 1,12 -12z" />
+    <path
+        android:fillColor="#2E9348"
+        android:pathData="M32,44h76v16H32z" />
+    <path
+        android:fillColor="#2E9348"
+        android:pathData="M44,72m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#2E9348"
+        android:pathData="M58,72m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#2E9348"
+        android:pathData="M72,72m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#5B8DEF"
+        android:pathData="M86,72m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#2E9348"
+        android:pathData="M70,98m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0" />
+    <path
+        android:fillColor="#0A0A0F"
+        android:pathData="M62,98l6,8 14,-16"
+        android:strokeWidth="3.5"
+        android:strokeColor="#0A0A0F"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

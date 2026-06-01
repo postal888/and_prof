@@ -1,0 +1,25 @@
+﻿videoCards.push({
+    id: nextVcId++,
+    type: 'video_sentence',
+    videoId: __ytCurrentVid,
+    videoTitle: 'YouTube',
+    timestamp: __vcPending.startSec,
+    sentence: __vcPending.sentence,
+    translation: tr,
+    words: extractLemmasFromPtSentence(__vcPending.sentence),
+    construction: constr ? constr.label : '',
+    addedAt: new Date().toISOString().slice(0, 10)
+  });
+  closeVideoCardModal();
+  renderVideoCardsList();
+  showToast('Ð¤ÑÐ°Ð·Ð° ÑÐ¾ÑÑÐ°Ð½ÐµÐ½Ð°');
+}
+
+function renderVideoCardsList() {
+  var box = document.getElementById('yt-video-cards-list');
+  if (!box) return;
+  if (!videoCards.length) {
+    box.innerHTML = '<p class="card-meta" style="font-size:10px">ÐÐ¾ÐºÐ° Ð½ÐµÑ ÑÐ¾ÑÑÐ°Ð½ÑÐ½Ð½ÑÑ ÑÑÐ°Ð·.</p>';
+    return;
+  }
+  box.innerHTML = videoCards.slice().reve

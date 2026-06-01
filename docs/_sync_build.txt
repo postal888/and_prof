@@ -1,0 +1,52 @@
+﻿function __syncBuildPayload(serverKey) {
+  if (serverKey === 'settings') {
+    var obj = {};
+    __SETTINGS_KEYS.forEach(function (k) { var v = localStorage.getItem(k); if (v !== null) obj[k] = v; });
+    return obj;
+  }
+  var lsKey = __lsKeyForServer(serverKey);
+  var raw = lsKey ? localStorage.getItem(lsKey) : null;
+  if (raw == null) return null;
+  try { return JSON.parse(raw); } catch (e) { return raw; }
+}
+
+function __syncPut(serverKey, jsonVal) {
+  return authApi('/api/sync/' + serverKey, { method: 'PUT', body: JSON.stringify({ json: jsonVal }) }).catch(function () {});
+}
+
+function __syncScheduleKey(serverKey) {
+  if (__syncTimers[serverKey]) clearTimeout(__syncTimers[serverKey]);
+  __syncTimers[serverKey] = setTimeout(function () {
+    __syncTimers[serverKey] = null;
+    var payload = __syncBuildPayload(serverKey);
+    if (payload == null) return;
+    __syncPut(serverKey, payload);
+  }, 700);
+}
+
+function __syncHydrate(serverKey, json) {
+  var put = __origSetItem || localStorage.setItem.bind(localStorage);
+  if (serverKey === 'settings') {
+    if (json && typeof json === 'object') {
+      Object.keys(json).forEach(function (k) { try { put(k, json[k]); } catch (e) {} });
+      try { loadUiThemePref(); loadUiLangPref(); document.documentElement.setAttribute('data-theme', __uiTheme); applyUiLanguage(); } catch (e) {}
+    }
+    return;
+  }
+  var lsKey = __lsKeyForServer(serverKey);
+  if (!lsKey) return;
+  try { put(lsKey, JSON.stringify(json)); } catch (e) {}
+}
+
+async function syncPullAll() {
+  var serverKeys = ['settings', 'programs', 'program_progress', 'activity', 'fle_plan_track'];
+  var keys = {};
+  try {
+    var r = await authApi('/api/sync');
+    if (r.ok) { var d = await r.json(); keys = (d && d.keys) || {}; }
+  } catch (e) {}
+  // Hydrate server -> local
+  serverKeys.forEach(function (sk) { if (keys[sk]) __syncHydrate(sk, keys[sk].json); });
+  // Seed: push local-only data up so this browser's existing data is not lost
+  serverKeys.forEach(function (sk) {
+

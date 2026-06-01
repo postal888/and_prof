@@ -1,14 +1,17 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="Theme.Proficon" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">@color/brand_navy</item>
-        <item name="android:navigationBarColor">@color/brand_navy</item>
-        <item name="android:windowBackground">@color/brand_navy</item>
-    </style>
-
-    <style name="Theme.Proficon.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/brand_navy</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/proficon_logo</item>
-        <item name="postSplashScreenTheme">@style/Theme.Proficon</item>
-    </style>
-</resources>
+﻿<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Profconq" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/brand_navy</item>
+        <item name="android:navigationBarColor">@color/brand_navy</item>
+        <item name="android:windowBackground">@color/brand_navy</item>
+    </style>
+
+    <style name="Theme.Profconq.Splash" parent="Theme.SplashScreen">
+        <!-- SplashScreen API expects a solid color here (not a layer-list). -->
+        <item name="windowSplashScreenBackground">@color/brand_navy</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon_transparent</item>
+        <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="windowSplashScreenAnimationDuration">200</item>
+        <item name="postSplashScreenTheme">@style/Theme.Profconq</item>
+    </style>
+</resources>
