@@ -8,7 +8,9 @@ import com.google.android.gms.common.api.ApiException
 import com.profconq.app.api.AccountInfo
 import com.profconq.app.api.DictionarySyncService
 import com.profconq.app.api.MirrorSyncResult
+import com.profconq.app.api.ProfconqAdminSession
 import com.profconq.app.api.ProfconqApiException
+import com.profconq.app.api.ProfconqSessionAuth
 import com.profconq.app.api.SyncPrimary
 import com.profconq.app.auth.AuthUser
 import com.profconq.app.auth.FirebaseAuthManager
@@ -19,6 +21,7 @@ import com.profconq.app.data.model.DictionaryEntry
 import com.profconq.app.data.model.ProgressSnapshot
 import com.profconq.app.data.model.StudySet
 import com.profconq.app.data.model.TodayPlan
+import com.profconq.app.data.model.DailyStudyActivity
 import com.profconq.app.data.WordLimitReachedException
 import com.profconq.app.data.model.WordCard
 import com.profconq.app.data.repository.ProfconqRepository
@@ -37,6 +40,8 @@ class MainViewModel(
     private val repository: ProfconqRepository,
     private val authManager: FirebaseAuthManager,
     private val dictionarySyncService: DictionarySyncService,
+    private val adminSession: ProfconqAdminSession,
+    private val sessionAuth: ProfconqSessionAuth,
     private val onSignOutCleanup: () -> Unit = {},
 ) : ViewModel() {
     val authUser: StateFlow<AuthUser?> = authManager.authUser
@@ -58,10 +63,18 @@ class MainViewModel(
     val promoBusy: StateFlow<Boolean> = _promoBusy.asStateFlow()
     private val _promoMessage = MutableStateFlow<String?>(null)
     val promoMessage: StateFlow<String?> = _promoMessage.asStateFlow()
+    private val _adminUsername = MutableStateFlow<String?>(null)
+    val adminUsername: StateFlow<String?> = _adminUsername.asStateFlow()
+    private val _adminBusy = MutableStateFlow(false)
+    val adminBusy: StateFlow<Boolean> = _adminBusy.asStateFlow()
+    private val _adminError = MutableStateFlow<String?>(null)
+    val adminError: StateFlow<String?> = _adminError.asStateFlow()
 
     init {
         viewModelScope.launch {
             _syncPrimary.value = dictionarySyncService.getSyncPrimary()
+            _adminUsername.value = adminSession.currentUsername()
+            restoreSiteSession()
         }
         authManager.authUser
             .onEach { user ->
@@ -93,6 +106,13 @@ class MainViewModel(
             TodayPlan(dueCount = 0, newCount = 0, streak = 0),
         )
 
+    val dailyActivities: StateFlow<List<DailyStudyActivity>> =
+        repository.dailyActivities.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            emptyList(),
+        )
+
     val progress: StateFlow<ProgressSnapshot> =
         repository.progressSnapshot.stateIn(
             viewModelScope,
@@ -113,6 +133,10 @@ class MainViewModel(
 
     fun setPhraseCopyEnabled(enabled: Boolean) {
         viewModelScope.launch { repository.setPhraseCopyEnabled(enabled) }
+    }
+
+    fun setYoutubeBackgroundPlayback(enabled: Boolean) {
+        viewModelScope.launch { repository.setYoutubeBackgroundPlayback(enabled) }
     }
 
     fun setWordContextExampleEnabled(enabled: Boolean) {
@@ -153,6 +177,14 @@ class MainViewModel(
 
     fun deleteCard(cardId: String) {
         viewModelScope.launch { repository.deleteCard(cardId) }
+    }
+
+    fun deleteStudySet(setId: String) {
+        viewModelScope.launch { repository.deleteStudySet(setId) }
+    }
+
+    fun renameStudySet(setId: String, name: String) {
+        viewModelScope.launch { repository.renameStudySet(setId, name) }
     }
 
     fun updateCollectionTitle(collectionId: String, title: String) {
@@ -203,11 +235,7 @@ class MainViewModel(
 
     fun setCardLearnMark(cardId: String, mark: String) {
         viewModelScope.launch {
-            when (mark) {
-                "good" -> repository.markCardKnown(cardId)
-                "medium" -> repository.markCardLearning(cardId)
-                else -> repository.markCardRepeat(cardId)
-            }
+            repository.setCardLearnMark(cardId, mark)
         }
     }
 
@@ -228,7 +256,40 @@ class MainViewModel(
         }
     }
 
-    fun createGoogleSignInIntent(): Intent = authManager.createGoogleSignInIntent()
+    fun createGoogleSignInIntent(): Intent? {
+        return runCatching { authManager.createGoogleSignInIntent() }
+            .onFailure { _authError.value = it.message ?: uiStrings().googleSignInDeveloper }
+            .getOrNull()
+    }
+
+    fun signInWithEmail(email: String, password: String) {
+        viewModelScope.launch {
+            _authBusy.value = true
+            _authError.value = null
+            runCatching { sessionAuth.login(email, password) }
+                .onSuccess { user ->
+                    authManager.setSiteUser(user)
+                    refreshCloudAccount()
+                }
+                .onFailure { error ->
+                    _authError.value = when (error) {
+                        is ProfconqApiException.InvalidCredentials -> uiStrings().profileAdminInvalidCredentials
+                        is ProfconqApiException.EmailNotVerified -> error.message
+                        else -> error.message ?: uiStrings().googleSignInFailed(-1)
+                    }
+                }
+            _authBusy.value = false
+        }
+    }
+
+    private suspend fun restoreSiteSession() {
+        val sessionUser = runCatching { sessionAuth.fetchSessionUser() }.getOrNull()
+        if (sessionUser != null) {
+            authManager.setSiteUser(sessionUser)
+        } else if (authManager.getIdToken() == null && authManager.authUser.value != null) {
+            authManager.setSiteUser(null)
+        }
+    }
 
     fun handleGoogleSignInResult(data: Intent?) {
         viewModelScope.launch {
@@ -251,6 +312,7 @@ class MainViewModel(
             _authBusy.value = true
             _authError.value = null
             runCatching {
+                sessionAuth.logout()
                 authManager.signOut()
                 repository.resetAccountLimits()
                 onSignOutCleanup()
@@ -274,6 +336,35 @@ class MainViewModel(
 
     fun clearPromoMessage() {
         _promoMessage.value = null
+    }
+
+    fun clearAdminError() {
+        _adminError.value = null
+    }
+
+    fun signInAdmin(username: String, password: String) {
+        viewModelScope.launch {
+            _adminBusy.value = true
+            _adminError.value = null
+            adminSession.login(username, password)
+                .onSuccess { name -> _adminUsername.value = name }
+                .onFailure {
+                    _adminError.value = when (it.message) {
+                        "invalid_credentials" -> uiStrings().profileAdminInvalidCredentials
+                        else -> uiStrings().profileAdminErrorGeneric
+                    }
+                }
+            _adminBusy.value = false
+        }
+    }
+
+    fun signOutAdmin() {
+        viewModelScope.launch {
+            _adminBusy.value = true
+            adminSession.logout()
+            _adminUsername.value = null
+            _adminBusy.value = false
+        }
     }
 
     fun redeemPromoCode(code: String) {
@@ -344,7 +435,7 @@ class MainViewModel(
 
     fun runCloudMirrorSync() {
         if (authManager.authUser.value == null) {
-            _syncMessage.value = uiStrings().syncSignInGoogleFirst
+            _syncMessage.value = uiStrings().syncSignInFirst
             return
         }
         val primary = _syncPrimary.value
@@ -378,7 +469,7 @@ class MainViewModel(
         return when (statusCode) {
             7 -> s.googleSignInNetwork
             8 -> s.googleSignInInternal
-            10 -> s.googleSignInDeveloper
+            10 -> s.googleSignInDeveloperWithSha(authManager.currentSigningSha1())
             12500 -> s.googleSignInOAuth
             12501 -> s.googleSignInCancelled
             12502 -> s.googleSignInInProgress
@@ -391,6 +482,8 @@ class MainViewModelFactory(
     private val repository: ProfconqRepository,
     private val authManager: FirebaseAuthManager,
     private val dictionarySyncService: DictionarySyncService,
+    private val adminSession: ProfconqAdminSession,
+    private val sessionAuth: ProfconqSessionAuth,
     private val onSignOutCleanup: () -> Unit = {},
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
@@ -400,6 +493,8 @@ class MainViewModelFactory(
                 repository,
                 authManager,
                 dictionarySyncService,
+                adminSession,
+                sessionAuth,
                 onSignOutCleanup,
             ) as T
         }

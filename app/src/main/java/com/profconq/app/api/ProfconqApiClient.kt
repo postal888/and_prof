@@ -28,6 +28,10 @@ class ProfconqApiClient(
         .readTimeout(45, TimeUnit.SECONDS)
         .build(),
 ) {
+    private val ttsClient: OkHttpClient = bearerClient.newBuilder()
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
     suspend fun pullVocabulary(): List<WebVocabWord> = withContext(Dispatchers.IO) {
         pullWithBearer().getOrElse { bearerError ->
             if (sessionAuth != null && sessionAuth.establishWebSession()) {
@@ -75,6 +79,115 @@ class ProfconqApiClient(
                 }
             }
             throw preferAuthError(bearerError, null)
+        }
+    }
+
+    /**
+     * ElevenLabs clip via the website API: cache lookup, then render.
+     * Guest `/api/elevenlabs-tts` is a last resort when not signed in.
+     */
+    suspend fun fetchStudioTts(
+        text: String,
+        lang: String,
+        voiceId: String,
+        force: Boolean = false,
+    ): ByteArray =
+        withContext(Dispatchers.IO) {
+            val payload = JSONObject()
+                .put("text", text)
+                .put("lang", lang)
+                .put("voice_id", voiceId)
+                .apply { if (force) put("force", true) }
+                .toString()
+            val guestPayload = JSONObject()
+                .put("text", text)
+                .put("language_code", lang)
+                .put("voice_id", voiceId)
+                .toString()
+
+            if (force) {
+                audioWithAuth("/api/sync/tts/render", payload)
+                    ?: audioGuest("/api/elevenlabs-tts", guestPayload)
+                    ?: throw ProfconqApiException.HttpError(503, "tts unavailable")
+            } else {
+                audioWithAuth("/api/sync/tts/lookup", payload)
+                    ?: audioWithAuth("/api/sync/tts/render", payload)
+                    ?: audioGuest("/api/elevenlabs-tts", guestPayload)
+                    ?: throw ProfconqApiException.HttpError(503, "tts unavailable")
+            }
+        }
+
+    private suspend fun audioWithAuth(path: String, jsonBody: String): ByteArray? {
+        audioWithBearer(path, jsonBody).getOrElse { bearerError ->
+            if (bearerError is ProfconqApiException.Unauthorized &&
+                sessionAuth != null &&
+                sessionAuth.establishWebSession()
+            ) {
+                return audioWithCookies(path, jsonBody).getOrElse { null }
+            }
+            return null
+        }?.let { return it }
+        if (sessionAuth != null && sessionAuth.establishWebSession()) {
+            return audioWithCookies(path, jsonBody).getOrNull()
+        }
+        return null
+    }
+
+    private suspend fun audioWithBearer(path: String, jsonBody: String): Result<ByteArray?> =
+        runCatching {
+            val token = authTokenProvider(false) ?: throw ProfconqApiException.Unauthorized()
+            var result = executeAudio(ttsClient, "POST", path, jsonBody, useBearer = true, token)
+            if (result.first == 401) {
+                val refreshed = authTokenProvider(true) ?: throw ProfconqApiException.Unauthorized()
+                result = executeAudio(ttsClient, "POST", path, jsonBody, useBearer = true, refreshed)
+            }
+            parseAudio(result.first, result.second)
+        }
+
+    private fun audioWithCookies(path: String, jsonBody: String): Result<ByteArray?> = runCatching {
+        val client = sessionAuth?.cookieClient ?: error("No cookie client")
+        val result = executeAudio(client, "POST", path, jsonBody, useBearer = false)
+        parseAudio(result.first, result.second)
+    }
+
+    private fun audioGuest(path: String, jsonBody: String): ByteArray? = runCatching {
+        val result = executeAudio(ttsClient, "POST", path, jsonBody, useBearer = false)
+        parseAudio(result.first, result.second)
+    }.getOrNull()
+
+    private fun parseAudio(code: Int, bytes: ByteArray): ByteArray? {
+        if (code == 401) throw ProfconqApiException.Unauthorized()
+        if (code == 404 || code == 204) return null
+        if (code !in 200..299) return null
+        if (bytes.size < 200) return null
+        val looksJson = bytes.size < 80 &&
+            bytes.firstOrNull()?.toInt()?.toChar() == '{'
+        if (looksJson) return null
+        return bytes
+    }
+
+    private fun executeAudio(
+        client: OkHttpClient,
+        method: String,
+        path: String,
+        jsonBody: String?,
+        useBearer: Boolean,
+        bearerToken: String = "",
+    ): Pair<Int, ByteArray> {
+        val url = "${ProfconqApiConfig.BASE_URL}$path"
+        val builder = Request.Builder()
+            .url(url)
+            .header("Accept", "audio/mpeg")
+        if (useBearer && bearerToken.isNotBlank()) {
+            builder.header("Authorization", "Bearer $bearerToken")
+        }
+        when (method) {
+            "PUT" -> builder.put(jsonBody!!.toRequestBody("application/json".toMediaType()))
+            "POST" -> builder.post(jsonBody!!.toRequestBody("application/json".toMediaType()))
+            else -> builder.get()
+        }
+        client.newCall(builder.build()).execute().use { response ->
+            return response.code to (response.body?.bytes() ?: ByteArray(0))
         }
     }
 

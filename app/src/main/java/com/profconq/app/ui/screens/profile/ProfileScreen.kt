@@ -29,9 +29,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -45,7 +42,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,8 +57,12 @@ import com.profconq.app.data.model.AppSettings
 import com.profconq.app.data.model.AppThemeMode
 import com.profconq.app.data.model.SubtitleFontSize
 import com.profconq.app.data.model.TodayPlan
+import com.profconq.app.ui.components.GradientPrimaryButton
+import com.profconq.app.ui.components.GlassOutlineButton
 import com.profconq.app.ui.components.MutedText
 import com.profconq.app.ui.components.PortCard
+import com.profconq.app.ui.components.PortSegmentedControl
+import com.profconq.app.ui.components.PortLayout
 import com.profconq.app.ui.components.TabScreenHeader
 import com.profconq.app.ui.navigation.MainTab
 import com.profconq.app.ui.components.SectionTitle
@@ -69,6 +73,7 @@ import com.profconq.app.ui.i18n.SubtitleLanguage
 import com.profconq.app.ui.theme.PpAccent
 import com.profconq.app.ui.theme.PpAccentSoft
 import com.profconq.app.ui.theme.PpBorder
+import com.profconq.app.ui.theme.PpBrandNavy
 import com.profconq.app.ui.theme.PpDanger
 import com.profconq.app.ui.theme.PpHeading
 import com.profconq.app.ui.theme.PpSurface
@@ -84,37 +89,13 @@ private fun SyncPrimaryToggle(
     appLabel: String,
     siteLabel: String,
 ) {
-    val shape = RoundedCornerShape(12.dp)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .clip(shape)
-            .background(PpSurfaceInput)
-            .border(1.dp, PpBorder, shape),
-    ) {
-        listOf(SyncPrimary.APP to appLabel, SyncPrimary.SITE to siteLabel).forEach { (mode, label) ->
-            val isSelected = selected == mode
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .clip(shape)
-                    .background(if (isSelected) PpAccentSoft else Color.Transparent)
-                    .clickable(enabled = enabled) { onSelect(mode) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (isSelected) PpAccent else PpTextMuted,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                )
-            }
-        }
-    }
+    val modes = listOf(SyncPrimary.APP, SyncPrimary.SITE)
+    PortSegmentedControl(
+        items = listOf(appLabel, siteLabel),
+        selectedIndex = modes.indexOf(selected).coerceAtLeast(0),
+        onSelect = { onSelect(modes[it]) },
+        enabled = enabled,
+    )
 }
 
 private val SwitchColumnWidth = 52.dp
@@ -129,6 +110,7 @@ fun ProfileScreen(
     onOpenProgress: () -> Unit,
     onUseChatGptChange: (Boolean) -> Unit,
     onPhraseCopyChange: (Boolean) -> Unit,
+    onYoutubeBackgroundPlaybackChange: (Boolean) -> Unit,
     onWordContextExampleChange: (Boolean) -> Unit,
     onSubtitleFontSizeChange: (Int) -> Unit,
     onUiLanguageChange: (Int) -> Unit,
@@ -148,12 +130,19 @@ fun ProfileScreen(
     onRedeemPromoCode: (String) -> Unit = {},
     onClearPromoMessage: () -> Unit = {},
     onSyncPrimaryChange: (SyncPrimary) -> Unit,
-    onCreateGoogleSignInIntent: () -> Intent,
+    onCreateGoogleSignInIntent: () -> Intent?,
     onGoogleSignInResult: (Intent?) -> Unit,
+    onSignInWithEmail: (String, String) -> Unit,
     onSignOut: () -> Unit,
     onClearAuthError: () -> Unit,
     onMirrorSync: () -> Unit,
     onClearSyncMessage: () -> Unit,
+    adminUsername: String? = null,
+    adminBusy: Boolean = false,
+    adminError: String? = null,
+    onAdminSignIn: (String, String) -> Unit = { _, _ -> },
+    onAdminSignOut: () -> Unit = {},
+    onClearAdminError: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalUiStrings.current
@@ -167,11 +156,10 @@ fun ProfileScreen(
         modifier = modifier
             .fillMaxSize()
             .portScreenBackground()
-            .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = PortLayout.Gutter),
+        verticalArrangement = Arrangement.spacedBy(PortLayout.HeaderToContent),
     ) {
         item {
-            Spacer(modifier = Modifier.height(6.dp))
             TabScreenHeader(tab = MainTab.Profile, subtitle = strings.profileTagline)
         }
 
@@ -191,28 +179,71 @@ fun ProfileScreen(
                 authUser?.email?.let {
                     MutedText(it)
                 }
+                if (authUser == null) {
+                    var emailInput by remember { mutableStateOf("") }
+                    var passwordInput by remember { mutableStateOf("") }
+                    MutedText(strings.profileSiteLoginHint)
+                    OutlinedTextField(
+                        value = emailInput,
+                        onValueChange = { emailInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(strings.profileEmailPlaceholder) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = PpText,
+                            unfocusedTextColor = PpText,
+                            focusedBorderColor = PpAccent,
+                            unfocusedBorderColor = PpBorder,
+                            focusedLabelColor = PpTextMuted,
+                            unfocusedLabelColor = PpTextMuted,
+                        ),
+                    )
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(strings.profilePasswordPlaceholder) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = PpText,
+                            unfocusedTextColor = PpText,
+                            focusedBorderColor = PpAccent,
+                            unfocusedBorderColor = PpBorder,
+                            focusedLabelColor = PpTextMuted,
+                            unfocusedLabelColor = PpTextMuted,
+                        ),
+                    )
+                    GlassOutlineButton(
+                        text = if (authBusy) strings.profileAuthLoading else strings.profileSignInEmail,
+                        onClick = { onSignInWithEmail(emailInput, passwordInput) },
+                        enabled = !authBusy && emailInput.isNotBlank() && passwordInput.isNotEmpty(),
+                        compact = true,
+                    )
+                    GlassOutlineButton(
+                        text = if (authBusy) strings.profileAuthLoading else strings.profileSignInGoogle,
+                        onClick = {
+                            onCreateGoogleSignInIntent()?.let { googleSignInLauncher.launch(it) }
+                        },
+                        enabled = !authBusy,
+                        compact = true,
+                    )
+                } else {
+                    GlassOutlineButton(
+                        text = strings.profileSignOut,
+                        onClick = onSignOut,
+                        enabled = !authBusy,
+                        compact = true,
+                    )
+                }
                 authError?.let {
                     Text(
                         text = it,
                         color = PpDanger,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.clickable { onClearAuthError() },
-                    )
-                }
-                OutlinedButton(
-                    onClick = {
-                        if (authUser == null) {
-                            googleSignInLauncher.launch(onCreateGoogleSignInIntent())
-                        } else {
-                            onSignOut()
-                        }
-                    },
-                    enabled = !authBusy,
-                ) {
-                    Text(
-                        if (authBusy) strings.profileAuthLoading
-                        else if (authUser == null) strings.profileSignInGoogle
-                        else strings.profileSignOut,
                     )
                 }
                 val wordLimit = cloudAccount?.wordLimit ?: WordLimitPolicy.FREE_LIMIT
@@ -253,17 +284,15 @@ fun ProfileScreen(
                                 unfocusedBorderColor = PpBorder,
                             ),
                         )
-                        OutlinedButton(
+                        GlassOutlineButton(
+                            text = if (promoBusy) strings.profileAuthLoading else strings.profilePromoApply,
                             onClick = {
                                 onRedeemPromoCode(promoInput)
                                 promoInput = ""
                             },
                             enabled = !promoBusy && !authBusy && promoInput.isNotBlank(),
-                        ) {
-                            Text(
-                                if (promoBusy) strings.profileAuthLoading else strings.profilePromoApply,
-                            )
-                        }
+                            compact = true,
+                        )
                     }
                     promoMessage?.let {
                         Text(
@@ -275,16 +304,13 @@ fun ProfileScreen(
                     }
                 }
                 if (authUser == null) {
-                    OutlinedButton(
-                        onClick = { googleSignInLauncher.launch(onCreateGoogleSignInIntent()) },
+                    GlassOutlineButton(
+                        text = if (authBusy) strings.profileAuthLoading
+                        else strings.profileSyncCloudSignInFirst,
+                        onClick = { onCreateGoogleSignInIntent()?.let { googleSignInLauncher.launch(it) } },
                         enabled = !syncBusy && !authBusy,
                         modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            if (authBusy) strings.profileAuthLoading
-                            else strings.profileSyncCloudSignInFirst,
-                        )
-                    }
+                    )
                     MutedText(strings.profileSyncCloudHint)
                 } else {
                     MutedText(strings.profileSyncMirrorHint)
@@ -299,17 +325,12 @@ fun ProfileScreen(
                         if (syncPrimary == SyncPrimary.APP) strings.profileSyncPrimaryAppHint
                         else strings.profileSyncPrimarySiteHint,
                     )
-                    Button(
+                    GradientPrimaryButton(
+                        text = if (syncBusy) strings.profileAuthLoading else strings.profileSyncMirror,
                         onClick = onMirrorSync,
                         enabled = !syncBusy && !authBusy,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
-                    ) {
-                        Text(
-                            if (syncBusy) strings.profileAuthLoading else strings.profileSyncMirror,
-                            color = Color.White,
-                        )
-                    }
+                    )
                 }
                 syncMessage?.let {
                     Text(
@@ -335,7 +356,7 @@ fun ProfileScreen(
             ) {
                 ProfileStat(value = dictionaryCount.toString(), label = strings.profileInDictionary)
                 ProfileStat(value = totalCards.toString(), label = strings.profileCards)
-                ProfileStat(value = todayPlan.streak.toString(), label = "streak")
+                ProfileStat(value = todayPlan.streak.toString(), label = strings.progressStreakLabel)
             }
         }
         }
@@ -442,6 +463,13 @@ fun ProfileScreen(
                 )
                 ProfileSettingsDivider()
                 ProfileToggleRow(
+                    title = strings.settingYoutubeBackgroundTitle,
+                    description = strings.settingYoutubeBackgroundSubtitle,
+                    checked = settings.youtubeBackgroundPlayback,
+                    onCheckedChange = onYoutubeBackgroundPlaybackChange,
+                )
+                ProfileSettingsDivider()
+                ProfileToggleRow(
                     title = strings.settingWordContextTitle,
                     description = strings.settingWordContextSubtitle,
                     checked = settings.wordContextExampleEnabled,
@@ -456,6 +484,72 @@ fun ProfileScreen(
                 )
             }
         }
+        }
+
+        item {
+            SectionTitle(title = strings.profileAdminSection)
+            PortCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MutedText(strings.profileAdminHint)
+                    if (adminUsername != null) {
+                        Text(
+                            text = strings.profileAdminSignedInAs(adminUsername),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = PpHeading,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        GlassOutlineButton(
+                            text = if (adminBusy) strings.profileAuthLoading
+                            else strings.profileAdminSignOut,
+                            onClick = onAdminSignOut,
+                            enabled = !adminBusy,
+                            compact = true,
+                        )
+                    } else {
+                        var adminLogin by remember { mutableStateOf("") }
+                        var adminPassword by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = adminLogin,
+                            onValueChange = { adminLogin = it },
+                            label = { Text(strings.profileAdminLogin) },
+                            singleLine = true,
+                            enabled = !adminBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PpAccent,
+                                unfocusedBorderColor = PpBorder,
+                            ),
+                        )
+                        OutlinedTextField(
+                            value = adminPassword,
+                            onValueChange = { adminPassword = it },
+                            label = { Text(strings.profileAdminPassword) },
+                            singleLine = true,
+                            enabled = !adminBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PpAccent,
+                                unfocusedBorderColor = PpBorder,
+                            ),
+                        )
+                        GlassOutlineButton(
+                            text = if (adminBusy) strings.profileAuthLoading
+                            else strings.profileAdminSignIn,
+                            onClick = { onAdminSignIn(adminLogin, adminPassword) },
+                            enabled = !adminBusy && adminLogin.isNotBlank() && adminPassword.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    adminError?.let {
+                        Text(
+                            text = it,
+                            color = PpDanger,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.clickable { onClearAdminError() },
+                        )
+                    }
+                }
+            }
         }
 
         item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -559,7 +653,7 @@ private fun ProfileToggleRow(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = PpHeading,
+                    checkedThumbColor = PpBrandNavy,
                     checkedTrackColor = PpAccent,
                     uncheckedThumbColor = PpTextMuted,
                     uncheckedTrackColor = PpSurfaceInput,

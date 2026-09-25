@@ -26,7 +26,35 @@ fun rememberAccentGradientBrush(): Brush {
     val palette = LocalPortPalette.current
     return remember(palette) {
         Brush.horizontalGradient(
-            colors = listOf(palette.accent, palette.brandCyan.copy(alpha = 0.85f)),
+            colors = listOf(palette.neonGreen, palette.neonCyan),
+        )
+    }
+}
+
+@Composable
+fun rememberGlassBorderBrush(): Brush {
+    val palette = LocalPortPalette.current
+    return remember(palette) {
+        Brush.linearGradient(
+            colors = listOf(
+                palette.neonGreen.copy(alpha = 0.45f),
+                palette.neonCyan.copy(alpha = 0.35f),
+                palette.glassBorder,
+            ),
+        )
+    }
+}
+
+@Composable
+fun rememberScreenGradientBrush(): Brush {
+    val palette = LocalPortPalette.current
+    return remember(palette) {
+        Brush.verticalGradient(
+            colors = listOf(
+                palette.gradientTop,
+                palette.gradientMid,
+                palette.gradientBottom,
+            ),
         )
     }
 }

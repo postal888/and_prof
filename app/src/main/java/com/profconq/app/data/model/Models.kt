@@ -23,6 +23,7 @@ data class WordCard(
     val chapterOrTag: String? = null,
     val exampleTranslation: String? = null,
     val isFavorite: Boolean = false,
+    val learnMark: String? = null,
 ) {
     /** Local file path or remote URL for the image slot. */
     val displayImage: String? get() = imageUrl ?: imagePath
@@ -81,17 +82,21 @@ data class ReaderBook(
 data class AppSettings(
     val useChatGptTranslation: Boolean = true,
     val phraseCopyEnabled: Boolean = true,
+    /** Keep YouTube audio playing when switching to other tabs. */
+    val youtubeBackgroundPlayback: Boolean = false,
     /** When true, tapping a word saves the surrounding phrase (between punctuation) as card example. */
     val wordContextExampleEnabled: Boolean = true,
     val themeMode: AppThemeMode = AppThemeMode.Dark,
     val subtitleFontSizeLevel: Int = SubtitleFontSize.DEFAULT_LEVEL,
     val readerFontSizeLevel: Int = ReaderFontSize.DEFAULT_LEVEL,
-    val uiLanguage: Int = AppLanguage.EN.storageCode,
+    val uiLanguage: Int = AppLanguage.DEFAULT.storageCode,
     /** Language of tapped words / YouTube subtitle track (pt, en, ru, es). */
     val translationSourceLanguage: Int = SubtitleLanguage.PT,
     /** Translation stored on cards (pt, en, ru, es). */
     val translationTargetLanguage: Int = SubtitleLanguage.RU,
     val readerLineSpacingPercent: Int = ReaderLineSpacing.DEFAULT_PERCENT,
+    val readerAutoScrollEnabled: Boolean = false,
+    val readerAutoScrollSpeed: Int = ReaderAutoScroll.DEFAULT_SPEED,
 )
 
 object SubtitleFontSize {
@@ -127,4 +132,34 @@ object ReaderLineSpacing {
     const val MIN_PERCENT = 90
     const val MAX_PERCENT = 220
     const val DEFAULT_PERCENT = 135
+}
+
+object ReaderAutoScroll {
+    const val MIN_SPEED = 1
+    const val MAX_SPEED = 20
+    const val DEFAULT_SPEED = 10
+
+    private fun normalized(speed: Int): Float {
+        val clamped = speed.coerceIn(MIN_SPEED, MAX_SPEED)
+        return (clamped - MIN_SPEED).toFloat() / (MAX_SPEED - MIN_SPEED).toFloat()
+    }
+
+    fun speedPercent(speed: Int): Int {
+        val clamped = speed.coerceIn(MIN_SPEED, MAX_SPEED)
+        return if (MAX_SPEED == MIN_SPEED) {
+            100
+        } else {
+            ((clamped - MIN_SPEED) * 100) / (MAX_SPEED - MIN_SPEED)
+        }
+    }
+
+    fun tickDelayMs(speed: Int): Long {
+        val t = normalized(speed)
+        return (100L - (t * 82f).toLong()).coerceIn(18L, 100L)
+    }
+
+    fun scrollStepPx(speed: Int): Float {
+        val t = normalized(speed)
+        return 1.5f + t * 7.5f
+    }
 }

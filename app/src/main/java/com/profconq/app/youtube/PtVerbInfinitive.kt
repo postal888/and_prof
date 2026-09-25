@@ -74,13 +74,32 @@ object PtVerbInfinitive {
 
     fun parseInfinitiveFromTranslation(raw: String): Pair<String, String?> {
         val infLine = Regex(
-            """(?m)^\s*\*?\s*инф\.?\s*[-–:]\s*([a-záàâãéêíóôõúç]{2,})\s*$""",
-            RegexOption.IGNORE_CASE,
+            """(?m)^\s*\*?\s*(?:инф|inf(?:initive)?)\.?\s*[-–—:]\s*([a-záàâãéêíóôõúç\-]+)\s*$""",
+            setOf(RegexOption.IGNORE_CASE),
         ).find(raw)
         if (infLine != null) {
             val inf = infLine.groupValues[1].trim()
-            val ru = raw.replace(infLine.value, "").trim()
-            return ru to inf
+            val cleaned = raw
+                .lineSequence()
+                .filterNot { line ->
+                    Regex(
+                        """^\s*\*?\s*(?:инф|inf(?:initive)?)\.?\s*[-–—:]""",
+                        RegexOption.IGNORE_CASE,
+                    ).containsMatchIn(line)
+                }
+                .joinToString("\n")
+                .trim()
+            return cleaned to inf.takeIf { it.isNotBlank() }
+        }
+        // Also strip trailing inline marker on the same line as the translation.
+        val inline = Regex(
+            """\s*\*+\s*(?:инф|inf(?:initive)?)\.?\s*[-–—:]\s*([a-záàâãéêíóôõúç\-]+)\s*$""",
+            setOf(RegexOption.IGNORE_CASE),
+        ).find(raw)
+        if (inline != null) {
+            val inf = inline.groupValues[1].trim()
+            val cleaned = raw.replace(inline.value, "").trim()
+            return cleaned to inf.takeIf { it.isNotBlank() }
         }
         return raw.trim() to null
     }

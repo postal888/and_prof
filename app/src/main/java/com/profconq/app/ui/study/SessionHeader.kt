@@ -11,12 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedIconButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,10 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Text
+import com.profconq.app.ui.components.PortLayout
+import com.profconq.app.ui.components.TabScreenHeader
 import com.profconq.app.ui.i18n.LocalStudyLanguagePrefs
+import com.profconq.app.ui.i18n.LocalUiStrings
 import com.profconq.app.ui.i18n.SubtitleLanguage
 
 @Composable
@@ -44,6 +42,7 @@ fun SessionHeader(
     onToggleDirection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalUiStrings.current
     val progress = if (totalCards > 0) currentCard.toFloat() / totalCards else 0f
     var directionPulse by remember { mutableStateOf(false) }
     LaunchedEffect(direction) {
@@ -57,68 +56,45 @@ fun SessionHeader(
         label = "directionScale",
     )
 
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = PortLayout.Gutter),
+        verticalArrangement = Arrangement.spacedBy(PortLayout.HeaderToContent),
     ) {
-        OutlinedIconButton(
-            onClick = onClose,
-            modifier = Modifier.size(36.dp),
+        TabScreenHeader(
+            title = setName,
+            subtitle = strings.studySessionCardProgress(currentCard, totalCards),
+            onBack = onClose,
+            actions = {
+                DirectionToggle(
+                    direction = direction,
+                    onClick = onToggleDirection,
+                    modifier = Modifier.scale(directionScale),
+                )
+            },
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            androidx.compose.material3.Icon(
-                Icons.Default.Close,
-                contentDescription = "Закрыть",
-                tint = PracticeSessionColors.TextMuted,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = setName,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = PracticeSessionColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .weight(1f)
                     .height(6.dp),
                 color = PracticeSessionColors.Accent,
                 trackColor = PracticeSessionColors.BorderStrong,
                 strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = "Карточка $currentCard из $totalCards",
-                    fontSize = 11.sp,
-                    color = PracticeSessionColors.TextMuted,
-                )
-                Text(
-                    text = "$progressPercent%",
-                    fontSize = 11.sp,
-                    color = PracticeSessionColors.TextMuted,
-                )
-            }
+            Text(
+                text = "$progressPercent%",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = PracticeSessionColors.TextMuted,
+            )
         }
-
-        DirectionToggle(
-            direction = direction,
-            onClick = onToggleDirection,
-            modifier = Modifier.scale(directionScale),
-        )
     }
 }
 
@@ -135,8 +111,8 @@ fun DirectionToggle(
     val arrow = if (forward) "→" else "←"
     androidx.compose.material3.Surface(
         onClick = onClick,
-        modifier = modifier.size(36.dp),
-        shape = RoundedCornerShape(10.dp),
+        modifier = modifier.size(40.dp),
+        shape = RoundedCornerShape(12.dp),
         color = PracticeSessionColors.BgElev,
         border = androidx.compose.foundation.BorderStroke(1.dp, PracticeSessionColors.BorderStrong),
     ) {

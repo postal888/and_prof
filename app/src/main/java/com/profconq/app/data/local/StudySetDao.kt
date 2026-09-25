@@ -40,6 +40,31 @@ interface StudySetDao {
     @Query("SELECT word_id FROM study_set_words WHERE study_set_id = :setId")
     suspend fun getWordIdsInSet(setId: String): List<String>
 
+    @Query(
+        """
+        SELECT c.id FROM cards c
+        INNER JOIN study_set_words ssw ON c.id = ssw.word_id
+        WHERE ssw.study_set_id = :setId AND c.known = 0
+        ORDER BY ssw.added_at ASC
+        """,
+    )
+    suspend fun getStudioWordIdsInSet(setId: String): List<String>
+
+    @Query(
+        """
+        SELECT
+            s.id AS setId,
+            (
+                SELECT COUNT(*)
+                FROM study_set_words ssw
+                INNER JOIN cards c ON c.id = ssw.word_id
+                WHERE ssw.study_set_id = s.id AND c.known = 0
+            ) AS studioCount
+        FROM study_sets s
+        """,
+    )
+    fun observeStudioCounts(): Flow<List<SetStudioCount>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWords(words: List<StudySetWordEntity>)
 
@@ -51,6 +76,9 @@ interface StudySetDao {
 
     @Query("UPDATE study_sets SET word_count = :count WHERE id = :setId")
     suspend fun updateWordCount(setId: String, count: Int)
+
+    @Query("UPDATE study_sets SET name = :name WHERE id = :setId")
+    suspend fun updateName(setId: String, name: String)
 
     @Query("UPDATE study_sets SET last_practiced_at = :at WHERE id = :setId")
     suspend fun updateLastPracticed(setId: String, at: Long)

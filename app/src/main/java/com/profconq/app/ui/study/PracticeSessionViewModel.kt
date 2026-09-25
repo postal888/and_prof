@@ -54,6 +54,7 @@ class PracticeSessionViewModel(
     private val repository: ProfconqRepository,
     private val setId: String,
     private val startWithFullSet: Boolean = false,
+    private val intensity: com.profconq.app.study.StudyIntensityStore? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(PracticeSessionUiState())
     val state: StateFlow<PracticeSessionUiState> = _state.asStateFlow()
@@ -186,17 +187,18 @@ class PracticeSessionViewModel(
         if (lessonFinished || queueDeque.isEmpty()) return
         val current = queueDeque.removeFirst()
         knownCardIds.add(current.id)
-        advanceAfterRating(current.id, isKnown = true)
+        advanceAfterRating(current, isKnown = true)
     }
 
     fun rateDontKnow() {
         if (lessonFinished || queueDeque.isEmpty()) return
         val current = queueDeque.removeFirst()
         dontKnowCardIds.add(current.id)
-        advanceAfterRating(current.id, isKnown = false)
+        advanceAfterRating(current, isKnown = false)
     }
 
-    private fun advanceAfterRating(wordId: String, isKnown: Boolean) {
+    private fun advanceAfterRating(card: WordCard, isKnown: Boolean) {
+        val wordId = card.id
         val finished = queueDeque.isEmpty()
         if (finished) lessonFinished = true
         _state.update { s ->
@@ -210,6 +212,7 @@ class PracticeSessionViewModel(
             )
         }
         viewModelScope.launch {
+            intensity?.recordCard(card, known = isKnown)
             if (isKnown) {
                 repository.recordReviewKnown(wordId)
             } else {
@@ -274,11 +277,12 @@ class PracticeSessionViewModelFactory(
     private val repository: ProfconqRepository,
     private val setId: String,
     private val startWithFullSet: Boolean = false,
+    private val intensity: com.profconq.app.study.StudyIntensityStore? = null,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(PracticeSessionViewModel::class.java)) {
-            return PracticeSessionViewModel(repository, setId, startWithFullSet) as T
+            return PracticeSessionViewModel(repository, setId, startWithFullSet, intensity) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

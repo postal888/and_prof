@@ -11,6 +11,7 @@ data class WebVocabWord(
     val word: String,
     val translation: String,
     val example: String = "",
+    val exampleRu: String = "",
     val tag: String = "geral",
     val infinitivo: String = "",
     val img: String = "",
@@ -27,6 +28,7 @@ data class WebVocabWord(
         .put("word", word)
         .put("translation", translation)
         .put("example", example)
+        .put("exampleRu", exampleRu)
         .put("tag", tag)
         .put("infinitivo", infinitivo)
         .put("img", img)
@@ -48,6 +50,11 @@ data class WebVocabWord(
                 word = word,
                 translation = translation,
                 example = json.optString("example", ""),
+                exampleRu = json.optString("exampleRu").ifBlank {
+                    json.optString("exampleTranslation").ifBlank {
+                        json.optString("example_ru", "")
+                    }
+                },
                 tag = json.optString("tag", "geral"),
                 infinitivo = json.optString("infinitivo", ""),
                 img = json.optString("img", ""),

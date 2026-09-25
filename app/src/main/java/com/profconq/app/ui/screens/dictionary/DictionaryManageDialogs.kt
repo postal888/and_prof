@@ -21,6 +21,7 @@ import com.profconq.app.ui.i18n.LocalStudyLanguagePrefs
 import com.profconq.app.ui.i18n.LocalUiStrings
 import com.profconq.app.ui.theme.PpAccent
 import com.profconq.app.ui.theme.PpBorder
+import com.profconq.app.ui.theme.PpBrandNavy
 import com.profconq.app.ui.theme.PpHeading
 import com.profconq.app.ui.theme.PpSurface
 import com.profconq.app.ui.theme.PpSurfaceInput
@@ -78,9 +79,12 @@ fun FolderEditDialog(
                     onDismiss()
                 },
                 enabled = title.trim().isNotEmpty(),
-                colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PpAccent,
+                    contentColor = PpBrandNavy,
+                ),
             ) {
-                Text(if (isEdit) strings.save else strings.dictionaryCreate, color = PpHeading)
+                Text(if (isEdit) strings.save else strings.dictionaryCreate, color = PpBrandNavy)
             }
         },
         dismissButton = {
@@ -147,9 +151,12 @@ fun AddWordDialog(
                     onDismiss()
                 },
                 enabled = pt.trim().isNotEmpty() && ru.trim().isNotEmpty(),
-                colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PpAccent,
+                    contentColor = PpBrandNavy,
+                ),
             ) {
-                Text(strings.dictionaryAddWord, color = PpHeading)
+                Text(strings.dictionaryAddWord, color = PpBrandNavy)
             }
         },
         dismissButton = {

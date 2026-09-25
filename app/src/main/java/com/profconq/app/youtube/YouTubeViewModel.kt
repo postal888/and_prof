@@ -59,6 +59,12 @@ data class YouTubeUiState(
     val wordContextExampleEnabled: Boolean = true,
     val subtitleFontSizeLevel: Int = SubtitleFontSize.DEFAULT_LEVEL,
     val watchHistory: List<YouTubeWatchHistoryItem> = emptyList(),
+    val isPlaying: Boolean = false,
+    val isPaused: Boolean = false,
+    val durationSec: Float = 0f,
+    val durationLabel: String? = null,
+    val videoThumbnailUrl: String? = null,
+    val videoChannel: String = "",
 )
 
 class YouTubeViewModel(
@@ -81,7 +87,7 @@ class YouTubeViewModel(
     private var subtitleLangCode: String = "pt"
     private var translationSourceLanguage: Int = SubtitleLanguage.PT
     private var translationTargetLanguage: Int = SubtitleLanguage.RU
-    private var uiLanguageCode: Int = AppLanguage.EN.storageCode
+    private var uiLanguageCode: Int = AppLanguage.DEFAULT.storageCode
 
     private fun strings(): UiStrings = UiStrings.forLanguage(AppLanguage.fromStorage(uiLanguageCode))
 
@@ -112,6 +118,10 @@ class YouTubeViewModel(
             repository.youtubeWatchHistory.collect { history ->
                 _state.update { it.copy(watchHistory = history) }
             }
+        }
+
+        viewModelScope.launch {
+            state.collect { YouTubeNowPlayingHub.publish(it) }
         }
     }
 
@@ -237,6 +247,7 @@ class YouTubeViewModel(
             thumbnailUrl = result.thumbnailUrl,
             duration = result.duration,
             isShort = result.isShort,
+            publishedAtMillis = result.publishedAtMillis,
         )
     }
 
@@ -262,6 +273,7 @@ class YouTubeViewModel(
             duration = item.duration,
             isShort = item.isShort,
             resumeSec = item.lastPositionSec,
+            publishedAtMillis = item.publishedAtMillis,
         )
     }
 
@@ -315,6 +327,7 @@ class YouTubeViewModel(
         duration: String? = null,
         isShort: Boolean = false,
         resumeSec: Float? = null,
+        publishedAtMillis: Long? = null,
     ) {
         flushYoutubeSeconds()
         persistWatchPosition()
@@ -341,6 +354,12 @@ class YouTubeViewModel(
                 selectedWord = null,
                 isSearchExpanded = false,
                 videoResults = emptyList(),
+                isPlaying = false,
+                isPaused = false,
+                durationSec = 0f,
+                durationLabel = duration,
+                videoThumbnailUrl = thumbnailUrl,
+                videoChannel = channel,
             )
         }
 
@@ -355,6 +374,7 @@ class YouTubeViewModel(
                     duration = duration,
                     isShort = isShort,
                     positionSec = resumeSec ?: 0f,
+                    publishedAtMillis = publishedAtMillis,
                 )
                 val result = fetcher.fetchTranscript(videoId, subtitleLangCode)
                 if (!isActive) return@launch
@@ -440,7 +460,21 @@ class YouTubeViewModel(
     override fun onCleared() {
         flushYoutubeSeconds()
         persistWatchPosition()
+        YouTubeNowPlayingHub.clear()
         super.onCleared()
+    }
+
+    fun onPlayerState(playing: Boolean, paused: Boolean) {
+        _state.update { it.copy(isPlaying = playing, isPaused = paused) }
+    }
+
+    fun onVideoDuration(sec: Float) {
+        if (sec <= 0f) return
+        _state.update { it.copy(durationSec = sec) }
+    }
+
+    fun onPlayerDetached() {
+        _state.update { it.copy(isPlaying = false, isPaused = false) }
     }
 
     fun seekTargetSec(): Float? {
@@ -520,7 +554,7 @@ class YouTubeViewModel(
                             isAdded = alreadySaved,
                             isPhrase = isPhrase,
                         ),
-                        error = e.message ?: strings().ytTranslateFailed,
+                        error = strings().userVisibleError(e, strings().ytTranslateFailed),
                     )
                 }
             }
@@ -553,7 +587,7 @@ class YouTubeViewModel(
                     current.copy(
                         selectedWord = word.copy(isAdded = true),
                         savedWords = current.savedWords + normalized,
-                        addToast = "«${word.pt}» добавлено в словарь",
+                        addToast = strings().wordAddedToDictionary(word.pt),
                     )
                 }
             } catch (e: Exception) {

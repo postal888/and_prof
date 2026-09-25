@@ -45,33 +45,37 @@ data class PortPalette(
     val gradientTop: Color,
     val gradientMid: Color,
     val gradientBottom: Color,
+    val glassSurface: Color,
+    val glassBorder: Color,
+    val neonGreen: Color,
+    val neonCyan: Color,
 )
 
 val LocalPortPalette = staticCompositionLocalOf { DarkPortPalette }
 
-/** Primary CTA — darker forest green (outlined buttons use dark fill + this border). */
-private val AccentTech = Color(0xFF2E9348)
-private val AccentTechHover = Color(0xFF26803F)
-private val AccentTechSoft = Color(0x262E9348)
+/** Template accent: neon green → cyan gradient endpoints. */
+private val NeonGreen = Color(0xFF7EE887)
+private val NeonGreenHover = Color(0xFF6AD676)
+private val NeonCyan = Color(0xFF00D2FF)
 
 val DarkPortPalette = PortPalette(
-    bg = Color(0xFF060D1A),
-    bgElevated = Color(0xFF0A1528),
-    surface = Color(0xFF0F1D32),
-    surfaceMuted = Color(0xFF0C1728),
+    bg = Color(0xFF050B18),
+    bgElevated = Color(0xFF0A1224),
+    surface = Color(0xFF101E36),
+    surfaceMuted = Color(0xFF0C172C),
     surfaceInput = Color(0xFF142440),
-    border = Color(0x334A7BC4),
-    divider = Color(0x14FFFFFF),
-    text = Color(0xFFE2E8F4),
+    border = Color(0x404A7BC4),
+    divider = Color(0x18FFFFFF),
+    text = Color(0xFFE8EEF8),
     textMuted = Color(0xFF8BA3C7),
     textSubtle = Color(0xFF5C7294),
     heading = Color(0xFFFFFFFF),
-    accent = AccentTech,
-    accentHover = AccentTechHover,
-    accentSoft = AccentTechSoft,
-    accentGlow = Color(0x3338C8F0),
-    secondary = Color(0xFF38C8F0),
-    secondarySoft = Color(0x2638C8F0),
+    accent = NeonGreen,
+    accentHover = NeonGreenHover,
+    accentSoft = Color(0x337EE887),
+    accentGlow = Color(0x4500D2FF),
+    secondary = NeonCyan,
+    secondarySoft = Color(0x3300D2FF),
     play = Color(0xFFF4C430),
     danger = Color(0xFFEF4444),
     highlight = Color(0xFFE8A838),
@@ -81,12 +85,16 @@ val DarkPortPalette = PortPalette(
     purple = Color(0xFF7C6CF0),
     brandNavy = Color(0xFF0A1E45),
     brandBlue = Color(0xFF1A4FA3),
-    brandCyan = Color(0xFF38C8F0),
-    brandGreen = AccentTech,
+    brandCyan = NeonCyan,
+    brandGreen = NeonGreen,
     brandYellow = Color(0xFFF4C430),
-    gradientTop = Color(0xFF0A1E45).copy(alpha = 0.85f),
-    gradientMid = Color(0xFF1A4FA3).copy(alpha = 0.35f),
-    gradientBottom = Color(0xFF060D1A),
+    gradientTop = Color(0xFF0D2048),
+    gradientMid = Color(0xFF0A1528),
+    gradientBottom = Color(0xFF050B18),
+    glassSurface = Color(0xFF142440).copy(alpha = 0.52f),
+    glassBorder = Color(0x38FFFFFF),
+    neonGreen = NeonGreen,
+    neonCyan = NeonCyan,
 )
 
 val LightPortPalette = PortPalette(
@@ -122,6 +130,10 @@ val LightPortPalette = PortPalette(
     gradientTop = Color(0xFF38C8F0).copy(alpha = 0.12f),
     gradientMid = Color(0xFF1A4FA3).copy(alpha = 0.08f),
     gradientBottom = Color(0xFFF2F6FC),
+    glassSurface = Color(0xFFFFFFFF).copy(alpha = 0.88f),
+    glassBorder = Color(0x664A7BC4),
+    neonGreen = Color(0xFF2A7D42),
+    neonCyan = Color(0xFF1A8FB8),
 )
 
 fun PortPalette.toColorScheme(): ColorScheme {

@@ -68,7 +68,7 @@ fun rememberAudioPlayerController(audioPath: String?): AudioPlayerController {
 @Composable
 fun CompactAudioPlayerBar(
     audioPath: String?,
-    title: String = "Запись папки",
+    title: String? = null,
     onTitleChange: ((String) -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onTrim: (() -> Unit)? = null,
@@ -77,6 +77,7 @@ fun CompactAudioPlayerBar(
     if (audioPath.isNullOrBlank()) return
 
     val strings = LocalUiStrings.current
+    val displayTitle = title ?: strings.dictionaryRecordFolder
     val player = rememberAudioPlayerController(audioPath)
 
     LaunchedEffect(player.isPlaying) {
@@ -88,7 +89,7 @@ fun CompactAudioPlayerBar(
 
     if (!player.hasAudio) {
         MutedText(
-            text = "Аудиофайл не найден",
+            text = strings.audioFileNotFound,
             modifier = modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
@@ -114,7 +115,7 @@ fun CompactAudioPlayerBar(
         ) {
             Icon(
                 imageVector = if (player.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = if (player.isPlaying) "Пауза" else "Воспроизвести",
+                contentDescription = if (player.isPlaying) strings.commonPause else strings.commonPlay,
                 tint = PpPlay,
                 modifier = Modifier.size(20.dp),
             )
@@ -125,13 +126,13 @@ fun CompactAudioPlayerBar(
         ) {
             Icon(
                 imageVector = Icons.Default.Stop,
-                contentDescription = "Стоп",
+                contentDescription = strings.dictionaryStop,
                 tint = PpTextMuted,
                 modifier = Modifier.size(18.dp),
             )
         }
         RecordingTitleField(
-            title = title,
+            title = displayTitle,
             onTitleChange = onTitleChange,
             modifier = Modifier.widthIn(max = 88.dp),
         )
@@ -181,7 +182,7 @@ fun CompactAudioPlayerBar(
             ) {
                 Icon(
                     imageVector = Icons.Default.Share,
-                    contentDescription = "Экспорт",
+                    contentDescription = strings.commonExport,
                     tint = PpTextMuted,
                     modifier = Modifier.size(17.dp),
                 )

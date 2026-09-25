@@ -7,3 +7,8 @@ data class SetReviewStats(
     @ColumnInfo(name = "dueCount") val dueCount: Int,
     @ColumnInfo(name = "masteredCount") val masteredCount: Int,
 )
+
+data class SetStudioCount(
+    @ColumnInfo(name = "setId") val setId: String,
+    @ColumnInfo(name = "studioCount") val studioCount: Int,
+)

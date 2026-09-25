@@ -18,13 +18,14 @@ object ReaderImportParser {
         val isDocx = path.endsWith(".docx") || type.contains("wordprocessingml.document")
         val isDoc = path.endsWith(".doc") || type.contains("application/msword")
         if (isDoc) {
-            error("Формат .doc не поддерживается. Сохраните файл как .docx.")
+            throw ReaderImportException(ReaderImportException.Reason.DOC_NOT_SUPPORTED)
         }
         return if (isDocx) {
-            openStream(uri)?.use { extractDocxText(it) } ?: error("Не удалось прочитать .docx файл.")
+            openStream(uri)?.use { extractDocxText(it) }
+                ?: throw ReaderImportException(ReaderImportException.Reason.DOCX_READ_FAILED)
         } else {
             openStream(uri)?.bufferedReader()?.use { it.readText() }
-                ?: error("Не удалось прочитать файл.")
+                ?: throw ReaderImportException(ReaderImportException.Reason.FILE_READ_FAILED)
         }
     }
 
@@ -45,7 +46,7 @@ object ReaderImportParser {
                 entry = zip.nextEntry
             }
             null
-        } ?: error("Не удалось прочитать .docx файл.")
+        } ?: throw ReaderImportException(ReaderImportException.Reason.DOCX_READ_FAILED)
 
         val withBreaks = xml
             .replace(Regex("<w:tab[^>]*/>"), "\t")

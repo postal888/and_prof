@@ -35,11 +35,19 @@ data class ProgressSnapshot(
     val topicStats: List<TopicRetention> = emptyList(),
 )
 
+enum class WeeklyActivityKind {
+    Cards,
+    YoutubeHours,
+    WordsRead,
+    Speech,
+    Writing,
+}
+
 data class WeeklyActivityMetric(
-    val label: String,
+    val kind: WeeklyActivityKind,
     val current: Float,
     val target: Float,
-    val unit: String,
+    val usesHoursUnit: Boolean,
     val colorArgb: Long,
 )
 

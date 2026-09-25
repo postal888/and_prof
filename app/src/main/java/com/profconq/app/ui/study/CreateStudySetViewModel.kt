@@ -11,27 +11,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
 data class CreateStudySetUiState(
-    val name: String = defaultName(),
+    val name: String = "",
     val selectedWords: List<WordCard> = emptyList(),
-) {
-    companion object {
-        fun defaultName(): String {
-            val formatter = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
-            return "Набор от ${formatter.format(Date())}"
-        }
-    }
-}
+)
 
 class CreateStudySetViewModel(
     private val repository: ProfconqRepository,
     private val selectionStore: StudyWordSelectionStore,
+    initialName: String,
 ) : ViewModel() {
-    private val _name = MutableStateFlow(CreateStudySetUiState.defaultName())
+    private val _name = MutableStateFlow(initialName)
 
     val uiState: StateFlow<CreateStudySetUiState> = combine(
         _name,
@@ -85,11 +75,12 @@ class CreateStudySetViewModel(
 class CreateStudySetViewModelFactory(
     private val repository: ProfconqRepository,
     private val selectionStore: StudyWordSelectionStore,
+    private val initialName: String,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CreateStudySetViewModel::class.java)) {
-            return CreateStudySetViewModel(repository, selectionStore) as T
+            return CreateStudySetViewModel(repository, selectionStore, initialName) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

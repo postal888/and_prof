@@ -4,7 +4,9 @@ import com.profconq.app.data.local.AppStateDao
 import com.profconq.app.data.local.AppStateEntity
 import com.profconq.app.data.local.DailyActivityDao
 import com.profconq.app.data.local.DailyActivityEntity
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import kotlin.math.max
@@ -12,7 +14,21 @@ import kotlin.math.max
 object ProgressTracker {
     private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
+    fun dateKeyFromMillis(at: Long): String =
+        Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).toLocalDate().format(dateFormatter)
+
+    fun millisAtStartOf(dateKey: String): Long =
+        LocalDate.parse(dateKey, dateFormatter)
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+
     fun todayKey(): String = LocalDate.now().format(dateFormatter)
+
+    fun isConsecutiveDay(previousKey: String, todayKey: String): Boolean =
+        runCatching {
+            ChronoUnit.DAYS.between(LocalDate.parse(previousKey), LocalDate.parse(todayKey)) == 1L
+        }.getOrDefault(false)
 
     fun dateKey(date: LocalDate): String = date.format(dateFormatter)
 

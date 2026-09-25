@@ -65,8 +65,8 @@ interface CollectionDao {
     @Query("DELETE FROM cards WHERE collection_id = :collectionId")
     suspend fun deleteCardsForCollection(collectionId: String)
 
-    @Query("UPDATE cards SET due = :due, known = :known WHERE id = :cardId")
-    suspend fun updateCardProgress(cardId: String, due: Boolean, known: Boolean)
+    @Query("UPDATE cards SET due = :due, known = :known, learn_mark = :learnMark WHERE id = :cardId")
+    suspend fun updateCardProgress(cardId: String, due: Boolean, known: Boolean, learnMark: String?)
 
     @Query(
         """

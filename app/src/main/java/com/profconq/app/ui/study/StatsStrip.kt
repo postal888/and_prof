@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.profconq.app.ui.components.PortLayout
 import com.profconq.app.ui.i18n.LocalUiStrings
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,7 +33,7 @@ fun StatsStrip(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = PortLayout.Gutter),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         StatPill(

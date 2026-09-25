@@ -1,9 +1,7 @@
 ﻿package com.profconq.app.ui.screens.youtube
 
-import android.content.Intent
-import android.net.Uri
-import android.view.ViewGroup
-import android.webkit.WebView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -50,7 +48,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import com.profconq.app.ui.components.GradientCircularLoader
+import com.profconq.app.ui.components.LoadingContent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,7 +58,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -83,18 +81,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import com.profconq.app.data.repository.ProfconqRepository
 import com.profconq.app.ui.components.MutedText
 import com.profconq.app.ui.components.PortCard
+import com.profconq.app.ui.components.PortLayout
 import com.profconq.app.ui.components.TabScreenHeader
 import com.profconq.app.ui.navigation.MainTab
 import com.profconq.app.ui.components.translation.WordTranslationBar
@@ -137,14 +129,29 @@ fun YouTubeScreen(
     repository: ProfconqRepository,
     authTokenProvider: suspend (Boolean) -> String? = { null },
     modifier: Modifier = Modifier,
+    backgroundPlaybackEnabled: Boolean = false,
     viewModel: YouTubeViewModel = viewModel(
         factory = YouTubeViewModelFactory(repository, authTokenProvider),
     ),
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
     var pendingSeek by remember { mutableFloatStateOf(-1f) }
     val watchMode = state.videoId != null
     val snackbarHostState = remember { SnackbarHostState() }
+    val notifyPermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { }
+
+    LaunchedEffect(state.isPlaying, state.isPaused) {
+        if ((state.isPlaying || state.isPaused) && android.os.Build.VERSION.SDK_INT >= 33) {
+            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) notifyPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     LaunchedEffect(state.activeLineId, state.activeMatchIndex, state.subtitleQuery) {
         val seek = viewModel.seekTargetSec()
@@ -168,6 +175,7 @@ fun YouTubeScreen(
                 pendingSeek = pendingSeek,
                 onPendingSeekApplied = { pendingSeek = -1f },
                 onSeekTo = { pendingSeek = it },
+                backgroundPlaybackEnabled = backgroundPlaybackEnabled,
                 viewModel = viewModel,
             )
         } else {
@@ -199,6 +207,7 @@ private fun WatchModeLayout(
     pendingSeek: Float,
     onPendingSeekApplied: () -> Unit,
     onSeekTo: (Float) -> Unit,
+    backgroundPlaybackEnabled: Boolean,
     viewModel: YouTubeViewModel,
 ) {
     val strings = LocalUiStrings.current
@@ -216,7 +225,7 @@ private fun WatchModeLayout(
                     .fillMaxWidth()
                     .heightIn(max = 360.dp)
                     .verticalScroll(searchScroll)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = PortLayout.Gutter, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 VideoInputSection(
@@ -229,12 +238,12 @@ private fun WatchModeLayout(
                     onLoadLink = { viewModel.loadVideo() },
                 )
                 if (state.isSearchingVideos) {
-                    Row(
+                    LoadingContent(
+                        message = LocalUiStrings.current.loadingSearch,
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        CircularProgressIndicator(color = PpAccent, strokeWidth = 2.dp)
-                    }
+                        showBar = true,
+                        loaderSize = 28.dp,
+                    )
                 }
                 if (state.videoResults.isNotEmpty()) {
                     Text(
@@ -264,7 +273,7 @@ private fun WatchModeLayout(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = PortLayout.Gutter),
             ) {
                 YouTubePlayerSection(
                     videoId = videoId,
@@ -272,7 +281,11 @@ private fun WatchModeLayout(
                     pendingSeekSec = pendingSeek,
                     onSeekApplied = onPendingSeekApplied,
                     onCurrentSec = viewModel::updatePlaybackSec,
+                    onPlayerState = viewModel::onPlayerState,
+                    onDurationSec = viewModel::onVideoDuration,
+                    onPlayerDetached = viewModel::onPlayerDetached,
                     compact = true,
+                    backgroundPlaybackEnabled = backgroundPlaybackEnabled,
                 )
             }
             ReloadSubtitlesButton(
@@ -281,7 +294,7 @@ private fun WatchModeLayout(
                 onClick = viewModel::reloadSubtitles,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                    .padding(horizontal = PortLayout.Gutter, vertical = 4.dp),
             )
         }
 
@@ -291,7 +304,7 @@ private fun WatchModeLayout(
                 canAddToDictionary = !word.isPhrase || state.phraseCopyEnabled,
                 onAdd = viewModel::addSelectedWordToDictionary,
                 onDismiss = viewModel::clearSelectedWord,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = PortLayout.Gutter, vertical = 6.dp),
             )
         }
 
@@ -299,19 +312,18 @@ private fun WatchModeLayout(
             CursorModeToggle(
                 mode = state.cursorMode,
                 onModeChange = viewModel::setCursorMode,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = PortLayout.Gutter, vertical = 4.dp),
             )
         }
 
         if (state.isLoading || state.isReloadingSubtitles) {
-            Row(
+            LoadingContent(
+                message = LocalUiStrings.current.loadingSubtitles,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                CircularProgressIndicator(color = PpAccent, strokeWidth = 2.dp)
-            }
+                loaderSize = 28.dp,
+            )
         }
 
         if (state.subtitleLines.isNotEmpty()) {
@@ -319,7 +331,7 @@ private fun WatchModeLayout(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = PortLayout.Gutter),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
@@ -395,7 +407,7 @@ private fun WatchModeLayout(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(14.dp),
+                    .padding(PortLayout.Gutter),
                 contentAlignment = Alignment.Center,
             ) {
                 MutedText(state.error ?: strings.ytSubtitlesUnavailable)
@@ -414,11 +426,10 @@ private fun BrowseModeLayout(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = PortLayout.Gutter),
+        verticalArrangement = Arrangement.spacedBy(PortLayout.HeaderToContent),
     ) {
         item {
-            Spacer(modifier = Modifier.height(6.dp))
             TabScreenHeader(
                 tab = MainTab.Practice,
                 subtitle = LocalUiStrings.current.youtubeScreenSubtitle,
@@ -439,12 +450,11 @@ private fun BrowseModeLayout(
 
         if (state.isSearchingVideos) {
             item {
-                Row(
+                LoadingContent(
+                    message = LocalUiStrings.current.loadingSearch,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    CircularProgressIndicator(color = PpAccent, strokeWidth = 2.dp)
-                }
+                    loaderSize = 28.dp,
+                )
             }
         }
 
@@ -497,7 +507,7 @@ private fun CollapsedSearchBar(
             .fillMaxWidth()
             .background(PpSurface)
             .clickable(onClick = onToggle)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = PortLayout.Gutter, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -553,9 +563,8 @@ private fun VideoInputSection(
             trailingIcon = {
                 Box(modifier = Modifier.padding(end = 10.dp)) {
                     if (state.isSearchingVideos) {
-                        CircularProgressIndicator(
+                        GradientCircularLoader(
                             modifier = Modifier.size(18.dp),
-                            color = PpAccent,
                             strokeWidth = 2.dp,
                         )
                     } else {
@@ -629,9 +638,8 @@ private fun ReloadSubtitlesButton(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (isReloading) {
-            CircularProgressIndicator(
+            GradientCircularLoader(
                 modifier = Modifier.size(16.dp),
-                color = PpAccent,
                 strokeWidth = 2.dp,
             )
         } else {
@@ -896,10 +904,11 @@ private fun WatchHistoryRow(
         VideoResultRow(
             result = item.toVideoResult(),
             onClick = onClick,
+            watchedAtMillis = item.lastWatchedAt,
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onDelete) {
-            Icon(Icons.Default.Close, contentDescription = "Удалить из истории", tint = PpTextMuted)
+            Icon(Icons.Default.Close, contentDescription = LocalUiStrings.current.ytRemoveFromHistory, tint = PpTextMuted)
         }
     }
 }
@@ -909,7 +918,16 @@ private fun VideoResultRow(
     result: YouTubeVideoResult,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    watchedAtMillis: Long? = null,
 ) {
+    val strings = LocalUiStrings.current
+    val releaseDate = result.publishedAtMillis?.let { strings.youtubeDate(it) }
+    val age = result.publishedAtMillis?.let { strings.youtubeVideoAge(it) }
+    val releasedLine = when {
+        releaseDate != null && age != null -> strings.youtubeReleasedLine(releaseDate, age)
+        !result.publishedText.isNullOrBlank() -> result.publishedText
+        else -> null
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -952,14 +970,32 @@ private fun VideoResultRow(
             result.duration?.let { duration ->
                 Text(
                     text = if (result.isShort && !duration.equals("SHORTS", ignoreCase = true)) {
-                        "Short · $duration"
+                        "${strings.filterShorts} · $duration"
                     } else if (result.isShort) {
-                        "Short"
+                        strings.filterShorts
                     } else {
                         duration
                     },
                     style = MaterialTheme.typography.labelMedium,
                     color = PpTextMuted,
+                )
+            }
+            releasedLine?.let { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = PpTextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            watchedAtMillis?.let { watchedAt ->
+                Text(
+                    text = strings.youtubeWatchedLine(strings.youtubeDate(watchedAt)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = PpTextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -975,20 +1011,21 @@ private fun SubtitleSearchBar(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
 ) {
+    val strings = LocalUiStrings.current
     PortCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { MutedText("Поиск по субтитрам…") },
+                placeholder = { MutedText(strings.ytSubtitleSearchPlaceholder) },
                 leadingIcon = {
                     Icon(Icons.Default.Search, contentDescription = null, tint = PpTextMuted)
                 },
                 trailingIcon = {
                     if (query.isNotBlank()) {
                         IconButton(onClick = { onQueryChange("") }) {
-                            Icon(Icons.Default.Close, contentDescription = "Очистить", tint = PpTextMuted)
+                            Icon(Icons.Default.Close, contentDescription = strings.clear, tint = PpTextMuted)
                         }
                     }
                 },
@@ -1003,21 +1040,19 @@ private fun SubtitleSearchBar(
             ) {
                 Text(
                     text = if (query.isBlank()) {
-                        "Введите слово или фразу"
-                    } else if (matchCount == 0) {
-                        "0 совпадений"
+                        strings.ytSubtitleSearchHint
                     } else {
-                        "${activeMatch + 1} / $matchCount совпадений"
+                        strings.ytSubtitleSearchMatchStatus(activeMatch, matchCount)
                     },
                     style = MaterialTheme.typography.labelMedium,
                     color = PpTextMuted,
                 )
                 Row {
                     IconButton(onClick = onPrevious, enabled = matchCount > 0) {
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Назад", tint = PpAccent)
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = strings.commonBack, tint = PpAccent)
                     }
                     IconButton(onClick = onNext, enabled = matchCount > 0) {
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Вперёд", tint = PpAccent)
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = strings.commonForward, tint = PpAccent)
                     }
                 }
             }
@@ -1031,6 +1066,7 @@ private fun CursorModeToggle(
     onModeChange: (SubtitleCursorMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalUiStrings.current
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1040,13 +1076,13 @@ private fun CursorModeToggle(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         CursorModeButton(
-            label = "👆 Слово",
+            label = strings.cursorModeWord,
             selected = mode == SubtitleCursorMode.Tap,
             onClick = { onModeChange(SubtitleCursorMode.Tap) },
             modifier = Modifier.weight(1f),
         )
         CursorModeButton(
-            label = "▎ Фраза",
+            label = strings.cursorModePhrase,
             selected = mode == SubtitleCursorMode.Select,
             onClick = { onModeChange(SubtitleCursorMode.Select) },
             modifier = Modifier.weight(1f),
@@ -1298,160 +1334,6 @@ private fun tokenizeSubtitleText(text: String): List<SubtitleToken> {
             )
         }
     }.toList()
-}
-
-@Composable
-private fun YouTubePlayerSection(
-    videoId: String,
-    initialSeekSec: Float,
-    pendingSeekSec: Float,
-    onSeekApplied: () -> Unit,
-    onCurrentSec: (Float) -> Unit,
-    compact: Boolean,
-) {
-    val context = LocalContext.current
-    var playerError by remember(videoId) { mutableStateOf<String?>(null) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        key(videoId) {
-            YouTubePlayer(
-                videoId = videoId,
-                initialSeekSec = initialSeekSec,
-                pendingSeekSec = pendingSeekSec,
-                onSeekApplied = onSeekApplied,
-                onCurrentSec = onCurrentSec,
-                onError = { playerError = it },
-                onPlaybackStarted = { playerError = null },
-            )
-        }
-
-        if (playerError != null && !compact) {
-            MutedText("Встроенный плеер: $playerError")
-        }
-
-        if (!compact) {
-            Button(
-                onClick = {
-                    val webUri = Uri.parse("https://www.youtube.com/watch?v=$videoId")
-                    val youtubeIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
-                        setPackage("com.google.android.youtube")
-                    }
-                    try {
-                        context.startActivity(youtubeIntent)
-                    } catch (_: Exception) {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = PpSurfaceInput),
-                shape = RoundedCornerShape(10.dp),
-            ) {
-                Text("Открыть в YouTube", color = PpText)
-            }
-        }
-    }
-}
-
-@Composable
-private fun YouTubePlayer(
-    videoId: String,
-    initialSeekSec: Float,
-    pendingSeekSec: Float,
-    onSeekApplied: () -> Unit,
-    onCurrentSec: (Float) -> Unit,
-    onError: (String) -> Unit,
-    onPlaybackStarted: () -> Unit,
-) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val context = LocalContext.current
-    var playerRef by remember { mutableStateOf<YouTubePlayer?>(null) }
-    val origin = remember { "https://${context.packageName}" }
-    val resumeSec = initialSeekSec.coerceAtLeast(0f)
-
-    LaunchedEffect(pendingSeekSec) {
-        if (pendingSeekSec >= 0f) {
-            playerRef?.seekTo(pendingSeekSec)
-            onSeekApplied()
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(10.dp))
-            .background(PpSurface),
-    ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                YouTubePlayerView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                    )
-                    enableAutomaticInitialization = false
-                    lifecycleOwner.lifecycle.addObserver(this)
-
-                    val options = IFramePlayerOptions.Builder()
-                        .controls(1)
-                        .fullscreen(1)
-                        .rel(0)
-                        .origin(origin)
-                        .build()
-
-                    initialize(
-                        object : AbstractYouTubePlayerListener() {
-                            override fun onReady(youTubePlayer: YouTubePlayer) {
-                                playerRef = youTubePlayer
-                                youTubePlayer.cueVideo(videoId, resumeSec)
-                            }
-
-                            override fun onCurrentSecond(youTubePlayer: YouTubePlayer, second: Float) {
-                                onCurrentSec(second)
-                            }
-
-                            override fun onStateChange(
-                                youTubePlayer: YouTubePlayer,
-                                state: PlayerConstants.PlayerState,
-                            ) {
-                                if (state == PlayerConstants.PlayerState.PLAYING) {
-                                    onPlaybackStarted()
-                                }
-                            }
-
-                            override fun onError(
-                                youTubePlayer: YouTubePlayer,
-                                error: PlayerConstants.PlayerError,
-                            ) {
-                                val message = when (error) {
-                                    PlayerConstants.PlayerError.VIDEO_NOT_PLAYABLE_IN_EMBEDDED_PLAYER ->
-                                        "видео нельзя смотреть во встроенном плеере"
-                                    PlayerConstants.PlayerError.VIDEO_NOT_FOUND ->
-                                        "видео не найдено"
-                                    else -> "ошибка $error"
-                                }
-                                onError(message)
-                            }
-                        },
-                        options,
-                    )
-
-                    post {
-                        (getChildAt(0) as? WebView)?.settings?.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            mediaPlaybackRequiresUserGesture = false
-                        }
-                    }
-                }
-            },
-        )
-    }
-
-    DisposableEffect(videoId) {
-        onDispose { playerRef = null }
-    }
 }
 
 @Composable

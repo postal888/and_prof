@@ -6,12 +6,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
+import com.profconq.app.ui.components.LoadingContent
+import com.profconq.app.ui.components.portScreenBackground
+import com.profconq.app.ui.i18n.LocalUiStrings
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,11 +25,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.profconq.app.data.repository.ProfconqRepository
-import com.profconq.app.media.playAudioFile
+import com.profconq.app.ui.components.PortLayout
+import com.profconq.app.ProfconqApplication
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun PracticeSessionScreen(
@@ -40,31 +41,32 @@ fun PracticeSessionScreen(
     onFinishLesson: () -> Unit,
     onEditWord: ((String, String) -> Unit)? = null,
     modifier: Modifier = Modifier,
-    viewModel: PracticeSessionViewModel = viewModel(
-        key = "practice_session_${setId}_${sessionKey}_$startWithFullSet",
-        factory = PracticeSessionViewModelFactory(repository, setId, startWithFullSet),
-    ),
 ) {
+    val intensity = (LocalContext.current.applicationContext as ProfconqApplication).studyIntensityStore
+    val viewModel: PracticeSessionViewModel = viewModel(
+        key = "practice_session_${setId}_${sessionKey}_$startWithFullSet",
+        factory = PracticeSessionViewModelFactory(repository, setId, startWithFullSet, intensity),
+    )
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
     var showCardMenu by remember { mutableStateOf(false) }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = PracticeSessionColors.Bg,
-        contentWindowInsets = WindowInsets.safeDrawing,
+        modifier = modifier.fillMaxSize().portScreenBackground(),
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .background(PracticeSessionColors.Bg),
+                .padding(innerPadding),
         ) {
             when {
                 state.isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = PracticeSessionColors.Accent)
-                    }
+                    val strings = LocalUiStrings.current
+                    LoadingContent(
+                        message = strings.loadingSession,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
                 state.isAllReviewedToday -> {
                     BackHandler(onBack = onFinishLesson)
@@ -99,7 +101,6 @@ fun PracticeSessionScreen(
                             direction = state.direction,
                             onClose = viewModel::showExitDialog,
                             onToggleDirection = viewModel::toggleDirection,
-                            modifier = Modifier.statusBarsPadding(),
                         )
                         StatsStrip(
                             knownCount = state.knownCount,
@@ -111,17 +112,11 @@ fun PracticeSessionScreen(
                             card = card,
                             direction = state.direction,
                             isFlipped = state.isFlipped,
-                            isExampleExpanded = state.isExampleExpanded,
-                            collectionTitle = viewModel.collectionTitleFor(card),
                             onFlip = viewModel::flipCard,
-                            onToggleExample = viewModel::toggleExample,
-                            onPlayAudio = {
-                                card.audioPath?.let { playAudioFile(it) }
-                            },
-                            onToggleFavorite = { viewModel.toggleFavorite(card.id) },
+                            onToggleDirection = viewModel::toggleDirection,
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(horizontal = 14.dp)
+                                .padding(horizontal = PortLayout.Gutter)
                                 .pointerInput(card.id) {
                                     detectTapGestures(
                                         onLongPress = { showCardMenu = true },
@@ -138,19 +133,20 @@ fun PracticeSessionScreen(
         }
     }
 
+    val strings = LocalUiStrings.current
     if (state.showExitDialog) {
         AlertDialog(
             onDismissRequest = viewModel::dismissExitDialog,
-            title = { Text("Завершить сессию?", color = PracticeSessionColors.TextPrimary) },
-            text = { Text("Прогресс этой сессии не будет сохранён.", color = PracticeSessionColors.TextMuted) },
+            title = { Text(strings.practiceExitSessionTitle, color = PracticeSessionColors.TextPrimary) },
+            text = { Text(strings.practiceExitSessionMessage, color = PracticeSessionColors.TextMuted) },
             confirmButton = {
                 TextButton(onClick = onFinishLesson) {
-                    Text("Выйти", color = PracticeSessionColors.Danger)
+                    Text(strings.practiceExitConfirm, color = PracticeSessionColors.Danger)
                 }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissExitDialog) {
-                    Text("Отмена", color = PracticeSessionColors.TextMuted)
+                    Text(strings.cancel, color = PracticeSessionColors.TextMuted)
                 }
             },
             containerColor = PracticeSessionColors.BgElev,
@@ -171,7 +167,7 @@ fun PracticeSessionScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Редактировать слово", color = PracticeSessionColors.Accent)
+                        Text(strings.practiceEditWord, color = PracticeSessionColors.Accent)
                     }
                     TextButton(
                         onClick = {
@@ -180,13 +176,13 @@ fun PracticeSessionScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Удалить из набора", color = PracticeSessionColors.Danger)
+                        Text(strings.practiceRemoveFromSet, color = PracticeSessionColors.Danger)
                     }
                     TextButton(
                         onClick = { showCardMenu = false },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Сообщить о проблеме", color = PracticeSessionColors.TextMuted)
+                        Text(strings.practiceReportProblem, color = PracticeSessionColors.TextMuted)
                     }
                 }
             },

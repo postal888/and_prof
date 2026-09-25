@@ -5,6 +5,7 @@ import com.profconq.app.data.model.Collection
 import com.profconq.app.data.model.DictionaryEntry
 import com.profconq.app.data.model.ProgressSnapshot
 import com.profconq.app.data.model.TopicRetention
+import com.profconq.app.data.model.WeeklyActivityKind
 import com.profconq.app.data.model.WeeklyActivityMetric
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -235,33 +236,33 @@ object ProgressCalculator {
         val cards = weekActivities.sumOf { it.cardsStudied }.toFloat()
 
         return listOf(
-            WeeklyActivityMetric("Карточки", cards, inputs.weeklyCardsGoal.toFloat(), "", 0xFF16A34A),
+            WeeklyActivityMetric(WeeklyActivityKind.Cards, cards, inputs.weeklyCardsGoal.toFloat(), false, 0xFF16A34A),
             WeeklyActivityMetric(
-                "YouTube часы",
+                WeeklyActivityKind.YoutubeHours,
                 youtubeMinutes,
                 inputs.weeklyYoutubeGoalMin.toFloat(),
-                "ч",
+                true,
                 0xFF3B82F6,
             ),
             WeeklyActivityMetric(
-                "Слова в чтении",
+                WeeklyActivityKind.WordsRead,
                 wordsRead,
                 inputs.weeklyReadingGoal.toFloat(),
-                "",
+                false,
                 0xFFEAB308,
             ),
             WeeklyActivityMetric(
-                "Запись речи",
+                WeeklyActivityKind.Speech,
                 speech,
                 inputs.weeklySpeechGoal.toFloat(),
-                "",
+                false,
                 0xFFA855F7,
             ),
             WeeklyActivityMetric(
-                "Письменные задания",
+                WeeklyActivityKind.Writing,
                 writing,
                 inputs.weeklyWritingGoal.toFloat(),
-                "",
+                false,
                 0xFFDC2626,
             ),
         )

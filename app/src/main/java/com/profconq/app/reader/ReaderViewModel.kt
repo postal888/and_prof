@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.profconq.app.data.model.ReaderBook
+import com.profconq.app.data.model.ReaderAutoScroll
 import com.profconq.app.data.model.ReaderLineSpacing
 import com.profconq.app.data.model.SubtitleCursorMode
 import com.profconq.app.data.repository.ProfconqRepository
@@ -43,7 +44,11 @@ data class ReaderUiState(
     val wordContextExampleEnabled: Boolean = true,
     val readerFontSizeLevel: Int = ReaderFontSize.DEFAULT_LEVEL,
     val readerLineSpacingPercent: Int = ReaderLineSpacing.DEFAULT_PERCENT,
+    val readerAutoScrollEnabled: Boolean = false,
+    val readerAutoScrollSpeed: Int = ReaderAutoScroll.DEFAULT_SPEED,
     val isImporting: Boolean = false,
+    val isOpeningBook: Boolean = false,
+    val openingBookId: String? = null,
     val error: String? = null,
     val addToast: String? = null,
 )
@@ -58,7 +63,7 @@ class ReaderViewModel(
     private var sessionStartMs: Long = 0L
     private var sessionStartParagraph: Int = 0
     private var sessionMaxParagraph: Int = 0
-    private var uiLanguageCode: Int = AppLanguage.EN.storageCode
+    private var uiLanguageCode: Int = AppLanguage.DEFAULT.storageCode
     private var translationSourceLanguage: Int = SubtitleLanguage.PT
     private var translationTargetLanguage: Int = SubtitleLanguage.RU
 
@@ -77,6 +82,8 @@ class ReaderViewModel(
                         wordContextExampleEnabled = settings.wordContextExampleEnabled,
                         readerFontSizeLevel = settings.readerFontSizeLevel,
                         readerLineSpacingPercent = settings.readerLineSpacingPercent,
+                        readerAutoScrollEnabled = settings.readerAutoScrollEnabled,
+                        readerAutoScrollSpeed = settings.readerAutoScrollSpeed,
                         cursorMode = if (!settings.phraseCopyEnabled) {
                             SubtitleCursorMode.Tap
                         } else {
@@ -97,6 +104,7 @@ class ReaderViewModel(
     fun openBook(bookId: String) {
         savedWordsJob?.cancel()
         viewModelScope.launch {
+            _state.update { it.copy(isOpeningBook = true, openingBookId = bookId, error = null) }
             try {
                 val book = repository.getReaderBook(bookId) ?: return@launch
                 repository.ensureReaderCollection(book.id, book.title)
@@ -121,6 +129,8 @@ class ReaderViewModel(
                 }
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.message ?: strings().readerOpenBookFailed) }
+            } finally {
+                _state.update { it.copy(isOpeningBook = false, openingBookId = null) }
             }
         }
     }
@@ -267,6 +277,21 @@ class ReaderViewModel(
         }
     }
 
+    fun setReaderAutoScrollEnabled(enabled: Boolean) {
+        _state.update { it.copy(readerAutoScrollEnabled = enabled) }
+        viewModelScope.launch {
+            repository.setReaderAutoScrollEnabled(enabled)
+        }
+    }
+
+    fun setReaderAutoScrollSpeed(speed: Int) {
+        val clamped = speed.coerceIn(ReaderAutoScroll.MIN_SPEED, ReaderAutoScroll.MAX_SPEED)
+        _state.update { it.copy(readerAutoScrollSpeed = clamped) }
+        viewModelScope.launch {
+            repository.setReaderAutoScrollSpeed(clamped)
+        }
+    }
+
     fun deleteBook(bookId: String) {
         if (bookId == ReaderDemoBooks.DEMO_ID) {
             _state.update { it.copy(error = strings().readerDemoNoDelete) }
@@ -336,7 +361,7 @@ class ReaderViewModel(
                     current.copy(
                         selectedWord = word.copy(isAdded = true),
                         savedWords = current.savedWords + normalized,
-                        addToast = "«${word.pt}» добавлено в словарь",
+                        addToast = strings().wordAddedToDictionary(word.pt),
                     )
                 }
             } catch (e: Exception) {
@@ -404,7 +429,7 @@ class ReaderViewModel(
                             isAdded = alreadySaved,
                             isPhrase = isPhrase,
                         ),
-                        error = e.message ?: strings().ytTranslateFailed,
+                        error = strings().userVisibleError(e, strings().ytTranslateFailed),
                     )
                 }
             }

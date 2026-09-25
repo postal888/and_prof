@@ -5,6 +5,7 @@ import com.profconq.app.ui.i18n.UiStrings
 enum class MainTab {
     Home,
     Study,
+    Studio,
     Reader,
     Practice,
     Dictionary,
@@ -14,6 +15,7 @@ enum class MainTab {
     fun label(strings: UiStrings): String = when (this) {
         Home -> strings.tabHome
         Study -> strings.tabStudy
+        Studio -> strings.tabStudio
         Reader -> strings.tabRead
         Practice -> strings.tabVideo
         Dictionary -> strings.tabDictionary

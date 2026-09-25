@@ -6,25 +6,64 @@
     id("com.google.gms.google-services")
 }
 
+import java.util.Properties
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(keystorePropertiesFile.inputStream())
+}
+
 android {
     namespace = "com.profconq.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.profconq.app"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 3
-        versionName = "1.1.1"
+        targetSdk = 36
+        versionCode = 6
+        versionName = "1.1.3"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                val storePath = keystoreProperties["storeFile"] as String?
+                    ?: error("keystore.properties: missing storeFile")
+                val store = file(storePath)
+                // storeFile must be a .jks/.keystore — not keystore.properties itself
+                require(store.exists()) {
+                    "Keystore not found: $store (check storeFile in keystore.properties)"
+                }
+                require(store.extension in listOf("jks", "keystore")) {
+                    "storeFile must be a keystore (.jks), got: $store"
+                }
+                storeFile = store
+                storePassword = keystoreProperties["storePassword"] as String?
+                    ?: error("keystore.properties: missing storePassword")
+                keyAlias = keystoreProperties["keyAlias"] as String?
+                    ?: error("keystore.properties: missing keyAlias")
+                keyPassword = keystoreProperties["keyPassword"] as String?
+                    ?: error("keystore.properties: missing keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -50,6 +89,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.media:media:1.7.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")

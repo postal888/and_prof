@@ -13,11 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.AlertDialog
@@ -25,7 +24,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.profconq.app.data.model.ProgressSnapshot
 import com.profconq.app.data.model.WeeklyActivityMetric
 import com.profconq.app.ui.components.PortCard
+import com.profconq.app.ui.components.PortLayout
 import com.profconq.app.ui.components.TabScreenHeader
 import com.profconq.app.ui.components.SectionTitle
 import com.profconq.app.ui.theme.PpAccent
@@ -93,32 +92,26 @@ fun ProgressScreen(
         modifier = modifier
             .fillMaxSize()
             .portScreenBackground()
-            .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = PortLayout.Gutter),
+        verticalArrangement = Arrangement.spacedBy(PortLayout.HeaderToContent),
     ) {
         item {
-            Spacer(modifier = Modifier.height(6.dp))
-            if (onBack != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = strings.commonBack,
-                            tint = PpAccent,
-                        )
-                    }
-                }
-            }
             TabScreenHeader(
                 title = strings.tabProgress,
-                subtitle = "Bom dia, ${progress.userName} 👋",
-            )
-            ProgressHeader(
-                userName = progress.userName,
-                onResetClick = { showResetDialog = true },
+                subtitle = strings.progressGreeting(progress.userName),
+                onBack = onBack,
+                actions = {
+                    IconButton(
+                        onClick = { showResetDialog = true },
+                        modifier = Modifier.size(PortLayout.HeaderButton),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Replay,
+                            contentDescription = strings.progressResetButton,
+                            tint = PpTextMuted,
+                        )
+                    }
+                },
             )
         }
 
@@ -135,43 +128,6 @@ fun ProgressScreen(
 }
 
 @Composable
-private fun ProgressHeader(userName: String, onResetClick: () -> Unit) {
-    val strings = LocalUiStrings.current
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Spacer(modifier = Modifier.weight(1f))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedButton(
-                onClick = onResetClick,
-                shape = RoundedCornerShape(10.dp),
-            ) {
-                Text(strings.progressResetButton, style = MaterialTheme.typography.labelMedium, color = PpTextMuted)
-            }
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(PpAccent),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = userName.take(2).uppercase(),
-                    color = PpHeading,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun DailyMetricsRow(progress: ProgressSnapshot) {
     val strings = LocalUiStrings.current
     Row(
@@ -180,8 +136,8 @@ private fun DailyMetricsRow(progress: ProgressSnapshot) {
     ) {
         MiniStatCard(
             icon = { Icon(Icons.Default.LocalFireDepartment, null, tint = PpWarning) },
-            value = "${progress.streakDays} дн",
-            label = "Streak",
+            value = strings.progressDaysShort(progress.streakDays),
+            label = strings.progressStreakLabel,
             modifier = Modifier.weight(1f),
         )
         MiniStatCard(
@@ -192,7 +148,7 @@ private fun DailyMetricsRow(progress: ProgressSnapshot) {
         )
         MiniStatCard(
             icon = { Icon(Icons.Default.Schedule, null, tint = PpInfo) },
-            value = "${progress.minutesToday} мин",
+            value = strings.progressMinutesShort(progress.minutesToday),
             label = strings.progressTodayLabel,
             modifier = Modifier.weight(1f),
         )
@@ -238,8 +194,8 @@ private fun HeatmapCard(progress: ProgressSnapshot) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                HeatStat("${progress.streakDays} дн", "streak")
-                HeatStat("${progress.heatmapRecordStreak} дн", strings.progressHeatRecord)
+                HeatStat(strings.progressDaysShort(progress.streakDays), strings.progressStreakLabel)
+                HeatStat(strings.progressDaysShort(progress.heatmapRecordStreak), strings.progressHeatRecord)
                 HeatStat("${progress.heatmapActiveDaysPercent}%", strings.progressHeatDaysInYear)
                 HeatStat("${progress.heatmapAverageScore}", strings.progressHeatAverage)
             }
@@ -339,9 +295,10 @@ private fun LineTrendChart(points: List<Int>, modifier: Modifier = Modifier) {
 
 @Composable
 private fun WeeklyActivityCard(activities: List<WeeklyActivityMetric>) {
+    val strings = LocalUiStrings.current
     PortCard {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SectionTitle(title = LocalUiStrings.current.progressWeeklyActivity)
+            SectionTitle(title = strings.progressWeeklyActivity)
             activities.forEach { activity ->
                 val percent = ((activity.current / activity.target.coerceAtLeast(1f)) * 100f).toInt().coerceIn(0, 100)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -349,9 +306,13 @@ private fun WeeklyActivityCard(activities: List<WeeklyActivityMetric>) {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text(activity.label, color = PpText, style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            text = "${formatActivityValue(activity)} / ${formatActivityTarget(activity)} ($percent%)",
+                            strings.progressWeeklyActivityLabel(activity.kind),
+                            color = PpText,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "${formatActivityValue(strings, activity)} / ${formatActivityTarget(strings, activity)} ($percent%)",
                             color = PpTextMuted,
                             style = MaterialTheme.typography.labelMedium,
                         )
@@ -371,8 +332,18 @@ private fun WeeklyActivityCard(activities: List<WeeklyActivityMetric>) {
     }
 }
 
-private fun formatActivityValue(activity: WeeklyActivityMetric): String =
-    if (activity.unit == "ч") "${activity.current}" else activity.current.toInt().toString()
+private fun formatActivityValue(
+    strings: com.profconq.app.ui.i18n.UiStrings,
+    activity: WeeklyActivityMetric,
+): String =
+    if (activity.usesHoursUnit) "${activity.current}" else activity.current.toInt().toString()
 
-private fun formatActivityTarget(activity: WeeklyActivityMetric): String =
-    if (activity.unit == "ч") "${activity.target}${activity.unit}" else activity.target.toInt().toString()
+private fun formatActivityTarget(
+    strings: com.profconq.app.ui.i18n.UiStrings,
+    activity: WeeklyActivityMetric,
+): String =
+    if (activity.usesHoursUnit) {
+        "${activity.target}${strings.progressHoursUnit}"
+    } else {
+        activity.target.toInt().toString()
+    }

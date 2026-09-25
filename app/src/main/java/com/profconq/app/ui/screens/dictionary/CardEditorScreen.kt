@@ -6,19 +6,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -40,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.profconq.app.data.model.Collection
@@ -51,12 +52,15 @@ import com.profconq.app.media.showAudioExportChooser
 import com.profconq.app.ui.components.AudioRecordingsList
 import com.profconq.app.ui.components.AudioTrimBottomSheet
 import com.profconq.app.ui.components.AudioTrimResult
+import com.profconq.app.ui.components.GradientPrimaryButton
 import com.profconq.app.ui.components.MutedText
 import com.profconq.app.ui.i18n.LocalStudyLanguagePrefs
 import com.profconq.app.ui.i18n.LocalUiStrings
-import com.profconq.app.ui.components.ProfconqLogo
-import com.profconq.app.ui.theme.PpAccent
+import com.profconq.app.ui.components.OverlayBottomBar
+import com.profconq.app.ui.components.PortLayout
+import com.profconq.app.ui.components.TabScreenHeader
 import com.profconq.app.ui.components.portScreenBackground
+import com.profconq.app.ui.theme.PpAccent
 import com.profconq.app.ui.theme.PpBorder
 import com.profconq.app.ui.theme.PpHeading
 import com.profconq.app.ui.theme.PpSurfaceInput
@@ -73,9 +77,10 @@ fun CardEditorScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val strings = LocalUiStrings.current
     if (collection == null || card == null) {
-        Column(modifier = modifier.fillMaxSize().portScreenBackground().padding(14.dp)) {
-            Text("Карточка не найдена", color = PpText)
+        Column(modifier = modifier.fillMaxSize().portScreenBackground().padding(PortLayout.Gutter)) {
+            Text(strings.cardEditorNotFound, color = PpText)
         }
         return
     }
@@ -83,6 +88,7 @@ fun CardEditorScreen(
     var pt by rememberSaveable(card.id) { mutableStateOf(card.pt) }
     var ru by rememberSaveable(card.id) { mutableStateOf(card.ru) }
     var example by rememberSaveable(card.id) { mutableStateOf(card.example.orEmpty()) }
+    var exampleRu by rememberSaveable(card.id) { mutableStateOf(card.exampleTranslation.orEmpty()) }
     var imagePath by rememberSaveable(card.id) { mutableStateOf(card.imagePath) }
     val audioPathsSaver = Saver<List<String>, String>(
         save = { paths -> AudioPathsCodec.encode(paths).orEmpty() },
@@ -102,7 +108,6 @@ fun CardEditorScreen(
     var audioTrimRequest by remember(card.id) { mutableStateOf<Pair<String, Boolean>?>(null) }
     val recorder = remember { AudioRecorder(context) }
     val audioPermission = rememberRecordAudioPermission()
-    val strings = LocalUiStrings.current
     val studyLangs = LocalStudyLanguagePrefs.current
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -118,25 +123,27 @@ fun CardEditorScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .portScreenBackground()
-            .verticalScroll(rememberScrollState())
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .portScreenBackground(),
     ) {
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = PpText)
-            }
-            ProfconqLogo(size = 36.dp)
-            Column(modifier = Modifier.padding(start = 8.dp)) {
-                Text("Карточка", style = MaterialTheme.typography.titleLarge, color = PpHeading)
-                MutedText(collection.title)
-            }
-        }
+        TabScreenHeader(
+            title = strings.cardEditorTitle,
+            subtitle = collection.title,
+            onBack = onBack,
+            modifier = Modifier.padding(horizontal = PortLayout.Gutter),
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = PortLayout.Gutter)
+                .padding(top = PortLayout.HeaderToContent, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
 
-        field(strings.studyLanguageName(studyLangs.source), pt) { pt = it }
-        field(strings.studyLanguageName(studyLangs.target), ru) { ru = it }
+        field(strings.studyLanguageName(studyLangs.source), pt, multiLine = true) { pt = it }
+        field(strings.studyLanguageName(studyLangs.target), ru, multiLine = true) { ru = it }
         field(strings.dictionaryWordExampleLabel, example, multiLine = true) { example = it }
+        field(strings.dictionaryWordExampleRuLabel, exampleRu, multiLine = true) { exampleRu = it }
 
         imagePath?.let { path ->
             AsyncImage(
@@ -152,11 +159,11 @@ fun CardEditorScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { imagePicker.launch("image/*") }) {
-                Text("Добавить картинку", color = PpText)
+                Text(strings.cardEditorAddImage, color = PpText)
             }
             if (imagePath != null) {
                 Button(onClick = { imagePath = null }) {
-                    Text("Убрать", color = PpText)
+                    Text(strings.commonRemove, color = PpText)
                 }
             }
         }
@@ -184,7 +191,7 @@ fun CardEditorScreen(
                 ),
             ) {
                 Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
-                Text(if (recording) "Стоп" else "Запись слова", color = PpText, modifier = Modifier.padding(start = 6.dp))
+                Text(if (recording) strings.dictionaryStop else strings.cardEditorRecordWord, color = PpText, modifier = Modifier.padding(start = 6.dp))
             }
         }
 
@@ -195,7 +202,7 @@ fun CardEditorScreen(
                     card.copy(audioLabels = audioLabels)
                         .audioTitle(path, index, strings::dictionaryCardRecordingDefault)
                 },
-                onShare = { path -> shareAudio(context, path) },
+                onShare = { path -> shareAudio(context, path, strings.audioExportLabels()) },
                 onTrim = { path -> audioTrimRequest = path to false },
                 onTitleChange = { path, title ->
                     audioLabels = audioLabels.toMutableMap().apply {
@@ -204,27 +211,28 @@ fun CardEditorScreen(
                 },
             )
         }
+        }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(
-            onClick = {
-                onSave(
-                    card.copy(
-                        pt = pt.trim(),
-                        ru = ru.trim(),
-                        example = example.trim().ifEmpty { null },
-                        imagePath = imagePath,
-                        audioPaths = audioPaths,
-                        audioPath = audioPaths.firstOrNull(),
-                        audioLabels = AudioLabelsCodec.retainOnly(audioLabels, audioPaths),
-                    ),
-                )
-                onBack()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
-        ) {
-            Text("Сохранить", color = PpHeading)
+        OverlayBottomBar {
+            GradientPrimaryButton(
+                text = strings.save,
+                onClick = {
+                    onSave(
+                        card.copy(
+                            pt = pt.trim(),
+                            ru = ru.trim(),
+                            example = example.trim().ifEmpty { null },
+                            exampleTranslation = exampleRu.trim().ifEmpty { null },
+                            imagePath = imagePath,
+                            audioPaths = audioPaths,
+                            audioPath = audioPaths.firstOrNull(),
+                            audioLabels = AudioLabelsCodec.retainOnly(audioLabels, audioPaths),
+                        ),
+                    )
+                    onBack()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 
@@ -282,9 +290,18 @@ private fun field(
         OutlinedTextField(
             value = value,
             onValueChange = onChange,
-            modifier = Modifier.fillMaxWidth(),
-            minLines = if (multiLine) 2 else 1,
-            maxLines = if (multiLine) 4 else 1,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (multiLine) Modifier.heightIn(min = 96.dp, max = 280.dp) else Modifier,
+                ),
+            minLines = if (multiLine) 3 else 1,
+            maxLines = if (multiLine) 12 else 1,
+            singleLine = !multiLine,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Sentences,
+                imeAction = if (multiLine) ImeAction.Default else ImeAction.Next,
+            ),
             shape = RoundedCornerShape(10.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = PpAccent,
@@ -299,6 +316,6 @@ private fun field(
     }
 }
 
-private fun shareAudio(context: android.content.Context, path: String) {
-    showAudioExportChooser(context, path)
+private fun shareAudio(context: android.content.Context, path: String, labels: com.profconq.app.media.AudioExportLabels) {
+    showAudioExportChooser(context, path, labels)
 }

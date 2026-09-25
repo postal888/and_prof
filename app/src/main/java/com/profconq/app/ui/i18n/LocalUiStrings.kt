@@ -2,4 +2,4 @@
 
 import androidx.compose.runtime.compositionLocalOf
 
-val LocalUiStrings = compositionLocalOf { UiStrings(AppLanguage.EN) }
+val LocalUiStrings = compositionLocalOf { UiStrings(AppLanguage.DEFAULT) }

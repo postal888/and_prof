@@ -57,11 +57,7 @@ class WordTranslator(
             translateViaMyMemory(trimmed, from, to)
         }
 
-        val (targetText, parsedInf) = if (to == SubtitleLanguage.RU) {
-            PtVerbInfinitive.parseInfinitiveFromTranslation(rawTranslated)
-        } else {
-            rawTranslated.trim() to null
-        }
+        val (targetText, parsedInf) = PtVerbInfinitive.parseInfinitiveFromTranslation(rawTranslated)
         val ptInfinitive = if (isSingleWord && from == SubtitleLanguage.PT) {
             PtVerbInfinitive.merge(localInf, parsedInf, trimmed)
         } else {
@@ -87,6 +83,8 @@ class WordTranslator(
             TranslationException.ServerError(error.message ?: "Server error")
         is ProfconqApiException.PromoInvalid,
         is ProfconqApiException.PromoAlreadyRedeemed,
+        is ProfconqApiException.InvalidCredentials,
+        is ProfconqApiException.EmailNotVerified,
         -> TranslationException.ServerError(error.message ?: "Server error")
     }
 
@@ -111,7 +109,7 @@ class WordTranslator(
                 if (fromLang == SubtitleLanguage.PT) {
                     append(
                         "\nIf this is a conjugated verb form, add a second line exactly: " +
-                            "*инф. - <Portuguese infinitive>",
+                            "*inf. - <Portuguese infinitive>",
                     )
                 }
             }

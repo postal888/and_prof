@@ -98,6 +98,14 @@ class YouTubeSearchService(
                     .lastOrNull { it.isNotBlank() }
             }
 
+        val publishedText = readTextNode(obj.optJSONObject("publishedTimeText"))
+            ?: obj.optJSONObject("publishedTimeText")
+                ?.optJSONObject("accessibility")
+                ?.optJSONObject("accessibilityData")
+                ?.optString("label")
+                ?.takeIf { it.isNotBlank() }
+        val publishedAtMillis = YouTubePublishedTime.parseToMillis(publishedText)
+
         return YouTubeVideoResult(
             videoId = videoId,
             title = title,
@@ -105,6 +113,8 @@ class YouTubeSearchService(
             duration = duration,
             thumbnailUrl = thumbnailUrl,
             isShort = isShort,
+            publishedAtMillis = publishedAtMillis,
+            publishedText = publishedText,
         )
     }
 

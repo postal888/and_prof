@@ -1,3 +1,5 @@
 ﻿<resources>
     <string name="app_name">Profconq</string>
+    <string name="studio_now_playing_channel">Studio</string>
+    <string name="youtube_now_playing_channel">Video</string>
 </resources>

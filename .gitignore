@@ -23,6 +23,8 @@ local.properties
 .env.*
 passwords.txt
 **/passwords.txt
+keystore.properties
+**/keystore.properties
 **/serviceAccountKey.json
 
 # Room schema exports
@@ -30,3 +32,10 @@ passwords.txt
 
 # Backend lives in proconq_site repo
 server/
+
+# Local landing mockup assets + Higgsfield website clones
+landing-mockup/assets/
+.hf-websites/
+
+# Local site preview (keep HTML/CSS/JS; ignore nothing heavy yet)
+# site-local/ is intentionally tracked as static preview source

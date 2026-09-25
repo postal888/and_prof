@@ -6,12 +6,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,17 +25,29 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.profconq.app.R
 import com.profconq.app.ui.i18n.LocalUiStrings
 import com.profconq.app.ui.navigation.MainTab
 import com.profconq.app.ui.theme.PpHeading
 import com.profconq.app.ui.theme.PpTextMuted
 import com.profconq.app.ui.theme.rememberAccentGradientBrush
-import com.profconq.app.ui.theme.LocalPortPalette
+import com.profconq.app.ui.theme.rememberScreenGradientBrush
 
-private val DefaultTabHeaderLogoSize = 44.dp
+object PortLayout {
+    val Gutter = 16.dp
+    val HeaderHeight = 64.dp
+    val HeaderLeading = 40.dp
+    val HeaderLogo = 44.dp
+    val HeaderTrail = 80.dp
+    val HeaderButton = 40.dp
+    val HeaderToContent = 12.dp
+}
+
+private val DefaultTabHeaderLogoSize = PortLayout.HeaderLogo
 
 @Composable
 fun ProfconqLogo(
@@ -55,30 +71,65 @@ fun ProfconqBrandHeader(
     modifier: Modifier = Modifier,
     logoSize: Dp = DefaultTabHeaderLogoSize,
     showLogo: Boolean = true,
+    onBack: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
+    val strings = LocalUiStrings.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = 4.dp),
+            .height(PortLayout.HeaderHeight),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (showLogo) {
-            ProfconqLogo(size = logoSize)
+            Box(
+                modifier = Modifier.size(PortLayout.HeaderLogo),
+                contentAlignment = Alignment.Center,
+            ) {
+                ProfconqLogo(size = logoSize)
+            }
         }
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.Center,
+        ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = PpHeading,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 24.sp,
             )
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = PpTextMuted,
-                    modifier = Modifier.padding(top = 2.dp),
+            Text(
+                text = subtitle.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                color = PpTextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 16.sp,
+                modifier = Modifier.height(16.dp),
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
+            content = actions,
+        )
+        if (onBack != null) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.size(PortLayout.HeaderButton),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = strings.commonBack,
+                    tint = PpHeading,
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }
@@ -92,6 +143,8 @@ fun TabScreenHeader(
     subtitle: String? = null,
     modifier: Modifier = Modifier,
     logoSize: Dp = DefaultTabHeaderLogoSize,
+    onBack: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     val strings = LocalUiStrings.current
     ProfconqBrandHeader(
@@ -99,22 +152,28 @@ fun TabScreenHeader(
         subtitle = subtitle,
         modifier = modifier,
         logoSize = logoSize,
+        onBack = onBack,
+        actions = actions,
     )
 }
 
-/** Same layout as [TabScreenHeader] when the screen is not a main tab (e.g. Progress). */
+/** Same layout as [TabScreenHeader] when the screen is not a main tab (e.g. Studio, Progress). */
 @Composable
 fun TabScreenHeader(
     title: String,
     subtitle: String? = null,
     modifier: Modifier = Modifier,
     logoSize: Dp = DefaultTabHeaderLogoSize,
+    onBack: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     ProfconqBrandHeader(
         title = title,
         subtitle = subtitle,
         modifier = modifier,
         logoSize = logoSize,
+        onBack = onBack,
+        actions = actions,
     )
 }
 
@@ -132,6 +191,6 @@ fun BrandAccentDivider(
     )
 }
 
-/** Screen background (solid — gradients can render black on some emulators). */
+/** Screen background — deep navy with subtle vertical gradient (design template). */
 @Composable
-fun Modifier.portScreenBackground(): Modifier = background(LocalPortPalette.current.bg)
+fun Modifier.portScreenBackground(): Modifier = background(rememberScreenGradientBrush())

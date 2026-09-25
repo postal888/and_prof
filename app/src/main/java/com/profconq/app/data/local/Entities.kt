@@ -52,6 +52,7 @@ data class CardEntity(
     @ColumnInfo(name = "chapter_or_tag") val chapterOrTag: String? = null,
     @ColumnInfo(name = "example_translation") val exampleTranslation: String? = null,
     @ColumnInfo(name = "is_favorite") val isFavorite: Boolean = false,
+    @ColumnInfo(name = "learn_mark") val learnMark: String? = "1",
 )
 
 @Entity(tableName = "dictionary")
@@ -108,6 +109,7 @@ data class YouTubeWatchHistoryEntity(
     @ColumnInfo(name = "last_watched_at") val lastWatchedAt: Long,
     @ColumnInfo(name = "last_position_sec") val lastPositionSec: Float = 0f,
     @ColumnInfo(name = "watch_count") val watchCount: Int = 1,
+    @ColumnInfo(name = "published_at") val publishedAt: Long? = null,
 )
 
 data class CollectionWithCards(

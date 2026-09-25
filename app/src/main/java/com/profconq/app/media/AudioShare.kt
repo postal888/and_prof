@@ -18,23 +18,31 @@ enum class AudioShareFormat {
     MP3,
 }
 
+data class AudioExportLabels(
+    val chooserTitle: String,
+    val m4aOption: String,
+    val mp3Option: String = "MP3",
+    val creatingMp3: String,
+    val mp3Failed: (String?) -> String,
+)
+
 fun showAudioExportChooser(
     context: Context,
     path: String,
-    chooserTitle: String = "Экспорт аудио",
+    labels: AudioExportLabels,
 ) {
     val activity = context.findActivity()
     if (activity == null) {
-        shareAudioFile(context, path, AudioShareFormat.M4A, chooserTitle)
+        shareAudioFile(context, path, AudioShareFormat.M4A, labels.chooserTitle)
         return
     }
-    val items = arrayOf("M4A (оригинал)", "MP3")
+    val items = arrayOf(labels.m4aOption, labels.mp3Option)
     android.app.AlertDialog.Builder(activity)
-        .setTitle(chooserTitle)
+        .setTitle(labels.chooserTitle)
         .setItems(items) { _, which ->
             when (which) {
-                0 -> shareAudioFile(context, path, AudioShareFormat.M4A, chooserTitle)
-                1 -> exportAndShareMp3(activity, path, chooserTitle)
+                0 -> shareAudioFile(context, path, AudioShareFormat.M4A, labels.chooserTitle)
+                1 -> exportAndShareMp3(activity, path, labels)
             }
         }
         .show()
@@ -79,22 +87,22 @@ fun shareAudioFile(
 private fun exportAndShareMp3(
     activity: Activity,
     sourcePath: String,
-    chooserTitle: String,
+    labels: AudioExportLabels,
 ) {
     val scope = (activity as? androidx.activity.ComponentActivity)?.lifecycleScope
-        ?: return shareAudioFile(activity, sourcePath, chooserTitle)
+        ?: return shareAudioFile(activity, sourcePath, labels.chooserTitle)
 
-    Toast.makeText(activity, "Создание MP3…", Toast.LENGTH_SHORT).show()
+    Toast.makeText(activity, labels.creatingMp3, Toast.LENGTH_SHORT).show()
     scope.launch {
         try {
             val mp3 = withContext(Dispatchers.IO) {
                 AudioMp3Exporter.exportToMp3(activity, sourcePath)
             }
-            shareAudioFile(activity, mp3.absolutePath, AudioShareFormat.MP3, chooserTitle)
+            shareAudioFile(activity, mp3.absolutePath, AudioShareFormat.MP3, labels.chooserTitle)
         } catch (e: Exception) {
             Toast.makeText(
                 activity,
-                "Не удалось создать MP3: ${e.message ?: "ошибка"}",
+                labels.mp3Failed(e.message),
                 Toast.LENGTH_LONG,
             ).show()
         }

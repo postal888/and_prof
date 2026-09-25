@@ -29,10 +29,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import android.content.Context
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -52,6 +54,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +63,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,12 +79,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import android.content.Intent
 import com.profconq.app.data.model.Collection
+import com.profconq.app.data.model.VocabLearnMark
 import com.profconq.app.data.model.WordCard
 import com.profconq.app.media.AudioRecorder
 import com.profconq.app.media.deleteAudioFile
@@ -92,38 +101,29 @@ import com.profconq.app.media.showAudioExportChooser
 import com.profconq.app.ui.components.AudioTrimBottomSheet
 import com.profconq.app.ui.components.AudioTrimResult
 import com.profconq.app.ui.components.AudioRecordingsList
-import com.profconq.app.ui.components.CompactAudioPlayerBar
+import com.profconq.app.ui.components.GradientPrimaryButton
+import com.profconq.app.ui.components.GlassOutlineButton
 import com.profconq.app.ui.components.MutedText
+import com.profconq.app.ui.components.PortCard
+import com.profconq.app.ui.components.PortLayout
 import com.profconq.app.ui.components.TabScreenHeader
+import com.profconq.app.ui.components.VocabLampsRow
+import com.profconq.app.ui.components.glassCard
 import com.profconq.app.ui.navigation.MainTab
 import com.profconq.app.ui.components.portScreenBackground
 import com.profconq.app.ui.i18n.LocalStudyLanguagePrefs
 import com.profconq.app.ui.i18n.LocalUiStrings
 import com.profconq.app.ui.theme.PpAccent
+import com.profconq.app.ui.theme.PpBrandNavy
 import com.profconq.app.ui.theme.PpDanger
 import com.profconq.app.ui.theme.PpBorder
 import com.profconq.app.ui.theme.PpHeading
+import com.profconq.app.ui.theme.PpNeonGreen
 import com.profconq.app.ui.theme.PpSurface
 import com.profconq.app.ui.theme.PpSurfaceInput
 import com.profconq.app.ui.theme.PpText
 import com.profconq.app.ui.theme.PpTextMuted
 import com.profconq.app.ui.study.StudyWordSelectionStore
-
-private val TableMinWidth = 1040.dp
-private val TableActionsWidth = 288.dp
-
-private enum class DictionaryLearnMark(val storage: String) {
-    Weak("weak"),
-    Medium("medium"),
-    Good("good"),
-    ;
-
-    fun label(strings: com.profconq.app.ui.i18n.UiStrings): String = when (this) {
-        Weak -> strings.dictionaryMasteryWeak
-        Medium -> strings.dictionaryMasteryMedium
-        Good -> strings.dictionaryMasteryGood
-    }
-}
 
 private sealed interface DictionaryTableRow {
     data class Group(val collection: Collection) : DictionaryTableRow
@@ -182,6 +182,7 @@ fun DictionaryScreen(
     selectionStore: StudyWordSelectionStore? = null,
     onSelectionDone: (() -> Unit)? = null,
     onSelectionCancel: (() -> Unit)? = null,
+    onSendToStudio: (List<String>) -> Unit = {},
     wordLimitMessage: String? = null,
     onDismissWordLimitMessage: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -192,24 +193,39 @@ fun DictionaryScreen(
     var folderDialog by remember { mutableStateOf<FolderDialogState?>(null) }
     var pendingDeleteFolder by remember { mutableStateOf<Collection?>(null) }
     var addWordCollectionId by remember { mutableStateOf<String?>(null) }
+    var collapsedFolderIds by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var compactWordRows by rememberSaveable { mutableStateOf(false) }
+    val bulkSelection = remember { StudyWordSelectionStore() }
 
     val filteredCollections = remember(collections, filterCollectionId) {
         if (filterCollectionId == null) collections
         else collections.filter { it.id == filterCollectionId }
     }
 
-    val tableRows = remember(filteredCollections, searchQuery, selectionMode) {
-        buildDictionaryTableRows(filteredCollections, searchQuery, includeNewWords = !selectionMode)
+    val searching = searchQuery.trim().isNotEmpty()
+    val tableRows = remember(filteredCollections, searchQuery, selectionMode, collapsedFolderIds, compactWordRows) {
+        buildDictionaryTableRows(
+            collections = filteredCollections,
+            searchQuery = searchQuery,
+            includeNewWords = !selectionMode && !compactWordRows,
+            collapsedIds = if (searching) emptySet() else collapsedFolderIds.toSet(),
+        )
     }
 
-    val selectedIdsFlow = selectionStore?.selectedIds
+    val activeSelectionStore = if (selectionMode) selectionStore else bulkSelection
+    val selectedIdsFlow = activeSelectionStore?.selectedIds
     val selectedIds by if (selectedIdsFlow != null) {
         selectedIdsFlow.collectAsState()
     } else {
         remember { mutableStateOf(emptySet<String>()) }
     }
 
-    val wordCount = tableRows.count { it is DictionaryTableRow.WordRow }
+    val wordCount = remember(filteredCollections, searchQuery) {
+        val q = searchQuery.trim().lowercase()
+        filteredCollections.sumOf { folder ->
+            folder.cards.count { card -> q.isEmpty() || matchesSearch(card, q) }
+        }
+    }
 
     val context = LocalContext.current
     val audioPermission = rememberRecordAudioPermission()
@@ -380,23 +396,14 @@ fun DictionaryScreen(
         modifier = modifier
             .fillMaxSize()
             .portScreenBackground()
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = PortLayout.Gutter),
     ) {
-        Spacer(modifier = Modifier.height(6.dp))
-        if (onBack != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = PpAccent)
-                }
-            }
-        }
         TabScreenHeader(
             tab = MainTab.Dictionary,
             subtitle = strings.dictionarySubtitle(wordCount),
+            onBack = onBack,
         )
+        Spacer(modifier = Modifier.height(PortLayout.HeaderToContent))
 
         wordLimitMessage?.let { message ->
             Spacer(modifier = Modifier.height(8.dp))
@@ -430,18 +437,14 @@ fun DictionaryScreen(
             Spacer(modifier = Modifier.height(16.dp))
             MutedText(strings.dictionaryEmptyHint)
             Spacer(modifier = Modifier.height(12.dp))
-            Button(
+            GradientPrimaryButton(
+                text = strings.dictionaryNewFolder,
                 onClick = { folderDialog = FolderDialogState.Create },
-                colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
                 modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = PpHeading)
-                Text(
-                    strings.dictionaryNewFolder,
-                    color = PpHeading,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
+                leading = {
+                    Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = PpBrandNavy)
+                },
+            )
         } else {
             DictionaryToolbar(
                 collections = collections,
@@ -464,98 +467,96 @@ fun DictionaryScreen(
             )
 
             Spacer(modifier = Modifier.height(8.dp))
+            DictionaryCardsCollapseBar(
+                compact = compactWordRows,
+                onToggle = { compactWordRows = !compactWordRows },
+            )
+            Spacer(modifier = Modifier.height(8.dp))
 
             if (tableRows.isEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
                 MutedText(strings.dictionaryNoSearchResults)
             } else {
-                val hScroll = rememberScrollState()
-                Box(
+                LazyColumn(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, PpBorder, RoundedCornerShape(12.dp))
-                        .background(PpSurface),
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(if (compactWordRows) 3.dp else 8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp),
                 ) {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        item(key = "header") {
-                            DictionaryTableHeader(horizontalScrollState = hScroll)
-                        }
-                        items(
-                            items = tableRows,
-                            key = { row ->
-                                when (row) {
-                                    is DictionaryTableRow.Group -> "g-${row.collection.id}"
-                                    is DictionaryTableRow.WordRow -> "w-${row.card.id}"
-                                    is DictionaryTableRow.NewWord -> "n-${row.collection.id}"
-                                }
-                            },
-                        ) { row ->
+                    items(
+                        items = tableRows,
+                        key = { row ->
                             when (row) {
-                                is DictionaryTableRow.Group -> {
-                                    val folderCardIds = visibleCardIdsInFolder(
-                                        collection = row.collection,
-                                        searchQuery = searchQuery,
-                                    )
-                                    if (selectionMode && selectionStore != null) {
-                                        DictionarySelectionGroupRow(
-                                            collection = row.collection,
-                                            cardIds = folderCardIds,
-                                            selectedIds = selectedIds,
-                                            onToggleFolder = { selectAll ->
-                                                selectionStore.setFolder(folderCardIds, selectAll)
-                                            },
-                                        )
-                                    } else {
-                                        DictionaryGroupRow(
-                                            collection = row.collection,
-                                            horizontalScrollState = hScroll,
-                                            onEdit = { folderDialog = FolderDialogState.Edit(row.collection) },
-                                            onDelete = { pendingDeleteFolder = row.collection },
-                                            onAddWord = { addWordCollectionId = row.collection.id },
-                                        )
-                                    }
-                                }
-                                is DictionaryTableRow.WordRow -> {
-                                    if (selectionMode && selectionStore != null) {
-                                        DictionarySelectionWordRow(
-                                            card = row.card,
-                                            checked = row.card.id in selectedIds,
-                                            onToggle = { selectionStore.toggle(row.card.id) },
-                                        )
-                                    } else {
-                                        DictionaryWordTableRow(
-                                            index = row.index,
-                                            collection = row.collection,
-                                            card = row.card,
-                                            horizontalScrollState = hScroll,
-                                            isRecording = isWordRecording(row.card.id),
-                                            onToggleRecording = { toggleWordRecording(row.card) },
-                                            onUpdateCard = onUpdateCard,
-                                            onDelete = { pendingDelete = row.card },
-                                            onSetLearnMark = onSetLearnMark,
-                                            onOpenCardEditor = { onOpenCardEditor(row.collection.id, row.card.id) },
-                                            onTrimAudio = { path ->
-                                                audioTrimTarget = DictionaryAudioTrimTarget.Word(
-                                                    row.card,
-                                                    path,
-                                                    fresh = false,
-                                                )
-                                            },
-                                        )
-                                    }
-                                }
-                                is DictionaryTableRow.NewWord -> DictionaryNewWordRow(
+                                is DictionaryTableRow.Group -> "g-${row.collection.id}"
+                                is DictionaryTableRow.WordRow -> "w-${row.card.id}"
+                                is DictionaryTableRow.NewWord -> "n-${row.collection.id}"
+                            }
+                        },
+                    ) { row ->
+                        when (row) {
+                            is DictionaryTableRow.Group -> {
+                                val folderCardIds = visibleCardIdsInFolder(
                                     collection = row.collection,
-                                    horizontalScrollState = hScroll,
-                                    onAdd = { pt, ru, ex ->
-                                        onAddCard(row.collection.id, pt, ru, ex)
+                                    searchQuery = searchQuery,
+                                )
+                                val expanded = searching || row.collection.id !in collapsedFolderIds
+                                DictionaryGroupCard(
+                                    collection = row.collection,
+                                    expanded = expanded,
+                                    cardIds = folderCardIds,
+                                    selectedIds = selectedIds,
+                                    showManageActions = !selectionMode,
+                                    onToggleExpand = {
+                                        collapsedFolderIds = if (row.collection.id in collapsedFolderIds) {
+                                            collapsedFolderIds - row.collection.id
+                                        } else {
+                                            collapsedFolderIds + row.collection.id
+                                        }
+                                    },
+                                    onToggleFolder = { selectAll ->
+                                        activeSelectionStore?.setFolder(folderCardIds, selectAll)
+                                    },
+                                    onEdit = { folderDialog = FolderDialogState.Edit(row.collection) },
+                                    onDelete = { pendingDeleteFolder = row.collection },
+                                    onAddWord = { addWordCollectionId = row.collection.id },
+                                )
+                            }
+                            is DictionaryTableRow.WordRow -> {
+                                DictionaryWordCard(
+                                    index = row.index,
+                                    collection = row.collection,
+                                    card = row.card,
+                                    compact = compactWordRows,
+                                    checked = row.card.id in selectedIds,
+                                    showActions = !selectionMode,
+                                    fieldsEditable = !selectionMode,
+                                    isRecording = isWordRecording(row.card.id),
+                                    onToggleSelected = { activeSelectionStore?.toggle(row.card.id) },
+                                    onToggleRecording = { toggleWordRecording(row.card) },
+                                    onDelete = { pendingDelete = row.card },
+                                    onSetLearnMark = onSetLearnMark,
+                                    onUpdateCard = onUpdateCard,
+                                    onOpenCardEditor = {
+                                        if (selectionMode) activeSelectionStore?.toggle(row.card.id)
+                                        else onOpenCardEditor(row.collection.id, row.card.id)
+                                    },
+                                    onTrimAudio = { path ->
+                                        audioTrimTarget = DictionaryAudioTrimTarget.Word(
+                                            row.card,
+                                            path,
+                                            fresh = false,
+                                        )
                                     },
                                 )
                             }
+                            is DictionaryTableRow.NewWord -> DictionaryNewWordCard(
+                                collection = row.collection,
+                                onAdd = { pt, ru, ex ->
+                                    onAddCard(row.collection.id, pt, ru, ex)
+                                },
+                            )
                         }
-                        item { Spacer(modifier = Modifier.height(8.dp)) }
                     }
                 }
             }
@@ -566,6 +567,21 @@ fun DictionaryScreen(
                 selectedCount = selectedIds.size,
                 onCancel = { onSelectionCancel?.invoke() },
                 onDone = { onSelectionDone?.invoke() },
+            )
+        } else if (selectedIds.isNotEmpty()) {
+            DictionaryBulkBar(
+                selectedCount = selectedIds.size,
+                onSendToStudio = {
+                    onSendToStudio(selectedIds.toList())
+                    bulkSelection.clear()
+                },
+                onExport = {
+                    val cards = collections
+                        .flatMap { folder -> folder.cards }
+                        .filter { it.id in selectedIds }
+                    shareDictionaryWords(context, cards, strings.dictionaryExportWords)
+                },
+                onClear = { bulkSelection.clear() },
             )
         }
     }
@@ -660,6 +676,36 @@ fun DictionaryScreen(
 }
 
 @Composable
+private fun DictionaryCardsCollapseBar(
+    compact: Boolean,
+    onToggle: () -> Unit,
+) {
+    val strings = LocalUiStrings.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = if (compact) strings.dictionaryExpandCards else strings.dictionaryCompactCards,
+            style = MaterialTheme.typography.labelLarge,
+            color = PpHeading,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Icon(
+            imageVector = if (compact) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+            contentDescription = if (compact) strings.dictionaryExpandCards else strings.dictionaryCompactCards,
+            tint = PpHeading,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+@Composable
 private fun DictionaryActionBar(
     filterCollectionId: String?,
     onCreateFolder: () -> Unit,
@@ -674,46 +720,25 @@ private fun DictionaryActionBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Button(
+        GradientPrimaryButton(
+            text = strings.dictionaryNewFolder,
             onClick = onCreateFolder,
-            colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
-            modifier = Modifier
-                .weight(1f)
-                .height(40.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp),
-        ) {
-            Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = PpHeading, modifier = Modifier.size(17.dp))
-            Text(
-                text = strings.dictionaryNewFolder,
-                color = PpHeading,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 6.dp),
-            )
-        }
-        Button(
+            compact = true,
+            modifier = Modifier.weight(1f),
+            leading = {
+                Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = PpBrandNavy, modifier = Modifier.size(17.dp))
+            },
+        )
+        GlassOutlineButton(
+            text = strings.dictionaryAddWord,
             onClick = onAddWord,
             enabled = addWordEnabled,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = PpSurfaceInput,
-                disabledContainerColor = PpSurfaceInput.copy(alpha = 0.5f),
-            ),
-            modifier = Modifier
-                .weight(1f)
-                .height(40.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp),
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null, tint = PpHeading, modifier = Modifier.size(17.dp))
-            Text(
-                text = strings.dictionaryAddWord,
-                color = PpHeading,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 6.dp),
-            )
-        }
+            compact = true,
+            modifier = Modifier.weight(1f),
+            leading = {
+                Icon(Icons.Default.Add, contentDescription = null, tint = PpNeonGreen, modifier = Modifier.size(17.dp))
+            },
+        )
     }
 }
 
@@ -813,7 +838,7 @@ private fun DictionaryToolbar(
                     textStyle = MaterialTheme.typography.bodyMedium,
                     placeholder = {
                         Text(
-                            "Поиск по PT, RU, примеру…",
+                            strings.dictionarySearchTablePlaceholder,
                             color = PpTextMuted,
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -894,16 +919,19 @@ private fun DictionaryToolbar(
                                     onUpdateCollectionTitle(activeCollection.id, titleDraft)
                                     editingFolderTitle = false
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PpAccent,
+                                    contentColor = PpBrandNavy,
+                                ),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             ) {
-                                Text("OK", color = PpHeading, style = MaterialTheme.typography.labelLarge)
+                                Text(strings.commonOk, color = PpBrandNavy, style = MaterialTheme.typography.labelLarge)
                             }
                             Button(
                                 onClick = { editingFolderTitle = false },
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             ) {
-                                Text("Отмена", color = PpText, style = MaterialTheme.typography.labelLarge)
+                                Text(strings.cancel, color = PpText, style = MaterialTheme.typography.labelLarge)
                             }
                         }
                     } else {
@@ -982,7 +1010,7 @@ private fun DictionaryToolbar(
                         isRecording = isFolderRecording(folder.id),
                         recordingStartedAtMs = folderRecordingStartedAt(folder.id),
                         folder = folder,
-                        onShare = { path -> showAudioExportChooser(context, path) },
+                        onShare = { path -> showAudioExportChooser(context, path, strings.audioExportLabels()) },
                         onTrim = { path -> onTrimFolderAudio(folder.id, path) },
                         onTitleChange = { path, title ->
                             onSetFolderAudioLabel(folder.id, path, title)
@@ -999,6 +1027,7 @@ private fun FolderRecordButton(
     isRecording: Boolean,
     onClick: () -> Unit,
 ) {
+    val strings = LocalUiStrings.current
     Button(
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
@@ -1014,7 +1043,7 @@ private fun FolderRecordButton(
             tint = if (isRecording) PpHeading else PpAccent,
         )
         Text(
-            text = if (isRecording) "Стоп" else "Запись папки",
+            text = if (isRecording) strings.dictionaryStop else strings.dictionaryRecordFolder,
             color = if (isRecording) PpHeading else PpText,
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(start = 6.dp),
@@ -1074,7 +1103,7 @@ private fun FolderRecordingPlayerSection(
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
-                    text = "Идёт запись",
+                    text = strings.dictionaryRecording,
                     style = MaterialTheme.typography.labelMedium,
                     color = PpHeading,
                     fontWeight = FontWeight.SemiBold,
@@ -1099,79 +1128,72 @@ private fun FolderRecordingPlayerSection(
 }
 
 @Composable
-private fun DictionaryTableHeader(horizontalScrollState: androidx.compose.foundation.ScrollState) {
-    val strings = LocalUiStrings.current
-    val studyLangs = LocalStudyLanguagePrefs.current
-    Row(
-        modifier = Modifier
-            .horizontalScroll(horizontalScrollState)
-            .widthIn(min = TableMinWidth)
-            .background(PpSurfaceInput)
-            .padding(vertical = 8.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TableHeaderCell("№", 36.dp)
-        TableHeaderCell(strings.studyLanguageName(studyLangs.source), 140.dp)
-        TableHeaderCell(strings.studyLanguageName(studyLangs.target), 140.dp)
-        TableHeaderCell(strings.dictionarySourceColumn, 72.dp)
-        TableHeaderCell(strings.dictionaryWordExampleLabel, 200.dp)
-        TableHeaderCell("", TableActionsWidth)
-    }
-}
-
-@Composable
-private fun TableHeaderCell(text: String, width: androidx.compose.ui.unit.Dp) {
-    Text(
-        text = text.uppercase(),
-        modifier = Modifier
-            .width(width)
-            .padding(horizontal = 6.dp),
-        style = MaterialTheme.typography.labelSmall,
-        color = PpTextMuted,
-        letterSpacing = 0.8.sp,
-        fontSize = 10.sp,
-    )
-}
-
-@Composable
-private fun DictionaryGroupRow(
+private fun DictionaryGroupCard(
     collection: Collection,
-    horizontalScrollState: androidx.compose.foundation.ScrollState,
+    expanded: Boolean,
+    cardIds: List<String>,
+    selectedIds: Set<String>,
+    showManageActions: Boolean,
+    onToggleExpand: () -> Unit,
+    onToggleFolder: (selectAll: Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onAddWord: () -> Unit,
 ) {
     val strings = LocalUiStrings.current
+    val source = sourceTypeLabel(collection.sourceType, strings)
+    val selectedInFolder = cardIds.count { it in selectedIds }
+    val toggleState = when {
+        cardIds.isEmpty() -> ToggleableState.Off
+        selectedInFolder == 0 -> ToggleableState.Off
+        selectedInFolder == cardIds.size -> ToggleableState.On
+        else -> ToggleableState.Indeterminate
+    }
     Row(
         modifier = Modifier
-            .horizontalScroll(horizontalScrollState)
-            .widthIn(min = TableMinWidth)
             .fillMaxWidth()
-            .background(PpAccent.copy(alpha = 0.12f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .glassCard(cornerRadius = 12.dp)
+            .background(PpAccent.copy(alpha = 0.10f))
+            .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
+        TriStateCheckbox(
+            state = toggleState,
+            onClick = { onToggleFolder(toggleState != ToggleableState.On) },
+            enabled = cardIds.isNotEmpty(),
+            colors = CheckboxDefaults.colors(checkedColor = PpAccent),
+        )
+        IconButton(onClick = onToggleExpand, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                contentDescription = if (expanded) strings.dictionaryCollapseFolder else strings.dictionaryExpandFolder,
+                tint = PpHeading,
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onToggleExpand)
+                .padding(end = 4.dp, top = 4.dp, bottom = 4.dp),
         ) {
             Text(
                 text = "${collection.title} · ${collection.cards.size}",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelLarge,
                 color = PpHeading,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            val source = sourceTypeLabel(collection.sourceType, strings)
             if (source.isNotEmpty()) {
                 Text(
-                    text = " · $source",
-                    style = MaterialTheme.typography.labelMedium,
+                    text = source,
+                    style = MaterialTheme.typography.labelSmall,
                     color = PpTextMuted,
+                    modifier = Modifier.padding(top = 1.dp),
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+        if (showManageActions) {
             IconButton(onClick = onAddWord, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.Add, contentDescription = strings.dictionaryAddWord, tint = PpAccent)
             }
@@ -1186,331 +1208,418 @@ private fun DictionaryGroupRow(
 }
 
 @Composable
-private fun DictionaryNewWordRow(
+private fun DictionaryNewWordCard(
     collection: Collection,
-    horizontalScrollState: androidx.compose.foundation.ScrollState,
     onAdd: (pt: String, ru: String, example: String?) -> Unit,
 ) {
     val strings = LocalUiStrings.current
+    val studyLangs = LocalStudyLanguagePrefs.current
     var pt by rememberSaveable(collection.id) { mutableStateOf("") }
     var ru by rememberSaveable(collection.id) { mutableStateOf("") }
     var example by rememberSaveable(collection.id) { mutableStateOf("") }
+    val canAdd = pt.trim().isNotEmpty() && ru.trim().isNotEmpty()
 
-    Row(
-        modifier = Modifier
-            .horizontalScroll(horizontalScrollState)
-            .widthIn(min = TableMinWidth)
-            .fillMaxWidth()
-            .background(PpSurfaceInput.copy(alpha = 0.25f))
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "+",
-            modifier = Modifier
-                .width(36.dp)
-                .padding(horizontal = 8.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = PpAccent,
-            fontWeight = FontWeight.Bold,
-        )
-        DictionaryEditableCell(
-            value = pt,
-            width = 140.dp,
-            singleLine = true,
-            fontWeight = FontWeight.SemiBold,
-            onValueChange = { pt = it },
-            onCommit = { pt = it },
-        )
-        DictionaryEditableCell(
-            value = ru,
-            width = 140.dp,
-            singleLine = true,
-            onValueChange = { ru = it },
-            onCommit = { ru = it },
-        )
-        Text(
-            text = sourceTypeLabel(collection.sourceType, strings),
-            modifier = Modifier
-                .width(72.dp)
-                .padding(horizontal = 6.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = PpTextMuted,
-            fontSize = 11.sp,
-        )
-        DictionaryEditableCell(
-            value = example,
-            width = 200.dp,
-            singleLine = false,
-            minLines = 1,
-            onValueChange = { example = it },
-            onCommit = { example = it },
-        )
-        Button(
-            onClick = {
-                val trimmedPt = pt.trim()
-                val trimmedRu = ru.trim()
-                if (trimmedPt.isNotEmpty() && trimmedRu.isNotEmpty()) {
-                    onAdd(trimmedPt, trimmedRu, example.trim().ifEmpty { null })
-                    pt = ""
-                    ru = ""
-                    example = ""
-                }
-            },
-            enabled = pt.trim().isNotEmpty() && ru.trim().isNotEmpty(),
-            modifier = Modifier
-                .width(TableActionsWidth)
-                .padding(end = 8.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
-        ) {
-            Text(strings.dictionaryAddWord, color = PpHeading, style = MaterialTheme.typography.labelSmall)
+    PortCard(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = strings.dictionaryAddWord,
+                style = MaterialTheme.typography.labelLarge,
+                color = PpHeading,
+                fontWeight = FontWeight.SemiBold,
+            )
+            OutlinedTextField(
+                value = pt,
+                onValueChange = { pt = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 48.dp),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                placeholder = {
+                    Text(
+                        strings.studyLanguageName(studyLangs.source),
+                        color = PpTextMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                colors = searchFieldColors(),
+            )
+            OutlinedTextField(
+                value = ru,
+                onValueChange = { ru = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 48.dp),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                placeholder = {
+                    Text(
+                        strings.studyLanguageName(studyLangs.target),
+                        color = PpTextMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                colors = searchFieldColors(),
+            )
+            OutlinedTextField(
+                value = example,
+                onValueChange = { example = it },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+                maxLines = 8,
+                textStyle = MaterialTheme.typography.bodySmall,
+                placeholder = {
+                    Text(
+                        strings.dictionaryWordExampleLabel,
+                        color = PpTextMuted,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                colors = searchFieldColors(),
+            )
+            GradientPrimaryButton(
+                text = strings.dictionaryAddWord,
+                onClick = {
+                    val trimmedPt = pt.trim()
+                    val trimmedRu = ru.trim()
+                    if (trimmedPt.isNotEmpty() && trimmedRu.isNotEmpty()) {
+                        onAdd(trimmedPt, trimmedRu, example.trim().ifEmpty { null })
+                        pt = ""
+                        ru = ""
+                        example = ""
+                    }
+                },
+                enabled = canAdd,
+                compact = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
 
+/** Reserved slot for a 3-digit index so it never collides with the word. */
+private val DictionaryCardIndexWidth = 36.dp
+
 @Composable
-private fun DictionaryWordTableRow(
+private fun DictionaryWordCard(
     index: Int,
     collection: Collection,
     card: WordCard,
-    horizontalScrollState: androidx.compose.foundation.ScrollState,
+    compact: Boolean,
+    checked: Boolean,
+    showActions: Boolean,
+    fieldsEditable: Boolean,
     isRecording: Boolean,
+    onToggleSelected: () -> Unit,
     onToggleRecording: () -> Unit,
     onTrimAudio: (String) -> Unit,
-    onUpdateCard: (WordCard) -> Unit,
     onDelete: () -> Unit,
     onSetLearnMark: (String, String) -> Unit,
+    onUpdateCard: (WordCard) -> Unit,
     onOpenCardEditor: () -> Unit,
 ) {
     val context = LocalContext.current
     val strings = LocalUiStrings.current
-    val rowBg = learnMarkRowColor(card)
+    val firstAudio = card.resolvedAudioPaths().firstOrNull()
+    val tag = card.partOfSpeech?.trim().orEmpty().let { raw ->
+        if (raw.isEmpty() || raw.equals("geral", ignoreCase = true)) ""
+        else strings.studioTagLabel(raw)
+    }
+    val example = card.example.orEmpty()
+    val exampleRu = card.exampleTranslation.orEmpty()
 
-    Row(
-        modifier = Modifier
-            .horizontalScroll(horizontalScrollState)
-            .widthIn(min = TableMinWidth)
-            .fillMaxWidth()
-            .background(rowBg)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = index.toString(),
-            modifier = Modifier
-                .width(36.dp)
-                .padding(horizontal = 8.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = PpTextMuted,
-        )
-        DictionaryEditableCell(
-            value = card.pt,
-            width = 140.dp,
-            fontWeight = FontWeight.SemiBold,
-            singleLine = true,
-            onCommit = { newPt ->
-                val trimmed = newPt.trim()
-                if (trimmed.isNotEmpty() && trimmed != card.pt) {
-                    onUpdateCard(card.copy(pt = trimmed))
-                }
-            },
-        )
-        DictionaryEditableCell(
-            value = card.ru,
-            width = 140.dp,
-            singleLine = true,
-            onCommit = { newRu ->
-                val trimmed = newRu.trim()
-                if (trimmed.isNotEmpty() && trimmed != card.ru) {
-                    onUpdateCard(card.copy(ru = trimmed))
-                }
-            },
-        )
-        Text(
-            text = sourceTypeLabel(collection.sourceType, strings),
-            modifier = Modifier
-                .width(72.dp)
-                .padding(horizontal = 6.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = PpTextMuted,
-            fontSize = 11.sp,
-        )
-        DictionaryEditableCell(
-            value = card.example.orEmpty(),
-            width = 200.dp,
-            singleLine = false,
-            minLines = 2,
-            onCommit = { newEx ->
-                val trimmed = newEx.trim()
-                val normalized = trimmed.ifEmpty { null }
-                if (normalized != card.example) {
-                    onUpdateCard(card.copy(example = normalized))
-                }
-            },
-        )
-        Row(
-            modifier = Modifier
-                .width(TableActionsWidth)
-                .padding(end = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(0.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            LearnMarkDropdown(
-                card = card,
-                onSetLearnMark = { onSetLearnMark(card.id, it) },
-            )
-            val firstAudio = card.resolvedAudioPaths().firstOrNull()
-            if (firstAudio != null) {
-                IconButton(
-                    onClick = { playAudioFile(firstAudio) },
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(Icons.Default.VolumeUp, contentDescription = "Прослушать", tint = PpAccent, modifier = Modifier.size(18.dp))
-                }
-                IconButton(
-                    onClick = { onTrimAudio(firstAudio) },
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(
-                        Icons.Default.ContentCut,
-                        contentDescription = strings.audioTrimEdit,
-                        tint = PpTextMuted,
-                        modifier = Modifier.size(18.dp),
+    if (compact) {
+        PortCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DictionaryCardIndex(
+                    index = index,
+                    checked = checked,
+                    onToggle = onToggleSelected,
+                )
+                Text(
+                    text = card.pt.ifBlank { strings.dictionaryWordPtLabel },
+                    color = if (card.pt.isBlank()) PpTextMuted else PpHeading,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(onClick = onOpenCardEditor),
+                )
+            }
+        }
+        return
+    }
+
+    PortCard(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DictionaryCardIndex(
+                    index = index,
+                    checked = checked,
+                    onToggle = onToggleSelected,
+                )
+                VocabCardField(
+                    text = card.pt,
+                    placeholder = strings.dictionaryWordPtLabel,
+                    emphasized = true,
+                    enabled = fieldsEditable,
+                    minLines = 1,
+                    maxLines = 8,
+                    onSave = { next ->
+                        if (next != card.pt) onUpdateCard(card.copy(pt = next))
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                if (tag.isNotEmpty()) {
+                    Text(
+                        text = tag,
+                        color = PpHeading,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(PpAccent.copy(alpha = 0.14f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
                     )
                 }
             }
-            IconButton(
-                onClick = onToggleRecording,
-                modifier = Modifier.size(32.dp),
+            VocabCardField(
+                text = card.ru,
+                placeholder = strings.dictionaryWordRuLabel,
+                enabled = fieldsEditable,
+                minLines = 1,
+                maxLines = 8,
+                onSave = { next ->
+                    if (next != card.ru) onUpdateCard(card.copy(ru = next))
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            VocabCardField(
+                text = example,
+                placeholder = strings.dictionaryWordExampleLabel,
+                italic = true,
+                tinted = example.isNotBlank(),
+                enabled = fieldsEditable,
+                minLines = 2,
+                maxLines = 12,
+                onSave = { next ->
+                    val stored = next.ifEmpty { null }
+                    if (stored != card.example) onUpdateCard(card.copy(example = stored))
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            VocabCardField(
+                text = exampleRu,
+                placeholder = strings.dictionaryWordExampleRuLabel,
+                italic = true,
+                muted = true,
+                enabled = fieldsEditable,
+                minLines = 2,
+                maxLines = 12,
+                onSave = { next ->
+                    val stored = next.ifEmpty { null }
+                    if (stored != card.exampleTranslation) {
+                        onUpdateCard(card.copy(exampleTranslation = stored))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.Default.Mic,
-                    contentDescription = if (isRecording) "Стоп" else "Запись",
-                    tint = if (isRecording) PpAccent else PpTextMuted,
-                    modifier = Modifier.size(18.dp),
+                VocabLampsRow(
+                    level = VocabLearnMark.level(card.learnMark, card.known, card.due),
+                    onSelect = { onSetLearnMark(card.id, it.toString()) },
                 )
-            }
-            firstAudio?.let { path ->
-                IconButton(
-                    onClick = { showAudioExportChooser(context, path) },
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = "Экспорт", tint = PpTextMuted, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.weight(1f))
+                if (showActions) {
+                    if (firstAudio != null) {
+                        IconButton(onClick = { playAudioFile(firstAudio) }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.VolumeUp, contentDescription = strings.commonListen, tint = PpAccent, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { onTrimAudio(firstAudio) }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.ContentCut, contentDescription = strings.audioTrimEdit, tint = PpTextMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    IconButton(onClick = onToggleRecording, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Default.Mic,
+                            contentDescription = if (isRecording) strings.dictionaryStop else strings.dictionaryRecord,
+                            tint = if (isRecording) PpAccent else PpTextMuted,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    firstAudio?.let { path ->
+                        IconButton(
+                            onClick = { showAudioExportChooser(context, path, strings.audioExportLabels()) },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = strings.commonExport, tint = PpTextMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    IconButton(onClick = onOpenCardEditor, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = strings.dictionaryCardEditor, tint = PpTextMuted, modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = PpTextMuted, modifier = Modifier.size(16.dp))
+                    }
                 }
             }
-            IconButton(onClick = onOpenCardEditor, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.Edit, contentDescription = "Редактор", tint = PpTextMuted, modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.Delete, contentDescription = "Удалить", tint = PpTextMuted, modifier = Modifier.size(18.dp))
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun LearnMarkDropdown(
-    card: WordCard,
-    onSetLearnMark: (String) -> Unit,
-) {
-    val strings = LocalUiStrings.current
-    var expanded by remember { mutableStateOf(false) }
-    val current = learnMarkForCard(card)
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-        modifier = Modifier.widthIn(min = 96.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .menuAnchor()
-                .height(34.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .border(1.dp, PpBorder, RoundedCornerShape(6.dp))
-                .background(PpSurfaceInput)
-                .clickable { expanded = !expanded }
-                .padding(start = 8.dp, end = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(0.dp),
-        ) {
-            Text(
-                text = current.label(strings),
-                style = MaterialTheme.typography.labelSmall,
-                color = PpText,
-                maxLines = 1,
-            )
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = null,
-                tint = PpTextMuted,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            containerColor = PpSurface,
-        ) {
-            DictionaryLearnMark.entries.forEach { mark ->
-                DropdownMenuItem(
-                    text = { Text(mark.label(strings), color = PpText, style = MaterialTheme.typography.bodyMedium) },
-                    onClick = {
-                        onSetLearnMark(mark.storage)
-                        expanded = false
-                    },
-                )
-            }
         }
     }
 }
 
 @Composable
-private fun DictionaryEditableCell(
-    value: String,
-    width: androidx.compose.ui.unit.Dp,
-    singleLine: Boolean,
-    minLines: Int = 1,
-    fontWeight: FontWeight? = null,
-    onValueChange: ((String) -> Unit)? = null,
-    onCommit: (String) -> Unit,
+private fun DictionaryCardIndex(
+    index: Int,
+    checked: Boolean,
+    onToggle: () -> Unit,
 ) {
-    var draft by rememberSaveable(value) { mutableStateOf(value) }
-    LaunchedEffect(value) { draft = value }
-
-    BasicTextField(
-        value = draft,
-        onValueChange = {
-            draft = it
-            onValueChange?.invoke(it)
-        },
+    Row(
         modifier = Modifier
-            .width(width)
-            .padding(horizontal = 4.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(PpSurfaceInput.copy(alpha = 0.35f))
-            .padding(horizontal = 6.dp, vertical = 6.dp)
-            .onFocusChanged { focus ->
-                if (!focus.isFocused && draft != value) {
-                    onCommit(draft)
-                }
-            },
-        textStyle = TextStyle(
-            color = PpText,
-            fontSize = 13.sp,
-            fontWeight = fontWeight ?: FontWeight.Normal,
-            lineHeight = 18.sp,
-        ),
-        cursorBrush = SolidColor(PpAccent),
-        singleLine = singleLine,
-        minLines = if (singleLine) 1 else minLines,
-        maxLines = if (singleLine) 1 else 4,
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onToggle)
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+            Checkbox(
+                checked = checked,
+                onCheckedChange = null,
+                colors = CheckboxDefaults.colors(
+                    checkedColor = PpAccent,
+                    uncheckedColor = PpTextMuted,
+                    checkmarkColor = PpBrandNavy,
+                ),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Text(
+            text = index.toString(),
+            color = PpTextMuted,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+            modifier = Modifier.width(DictionaryCardIndexWidth),
+        )
+    }
+}
+
+@Composable
+private fun VocabCardField(
+    text: String,
+    placeholder: String,
+    onSave: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    emphasized: Boolean = false,
+    italic: Boolean = false,
+    tinted: Boolean = false,
+    muted: Boolean = false,
+    enabled: Boolean = true,
+    minLines: Int = 1,
+    maxLines: Int = 8,
+) {
+    var value by remember { mutableStateOf(text) }
+    var focused by remember { mutableStateOf(false) }
+    val latest = remember { FieldDraft(text) }
+    latest.value = value
+    latest.saved = text
+    LaunchedEffect(text) {
+        if (!focused) value = text
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            val next = latest.value.trim()
+            if (next != latest.saved) onSave(next)
+        }
+    }
+    val shape = RoundedCornerShape(8.dp)
+    val border = when {
+        focused -> PpAccent.copy(alpha = 0.7f)
+        tinted -> PpNeonGreen.copy(alpha = 0.28f)
+        else -> PpBorder
+    }
+    val bg = when {
+        tinted -> PpNeonGreen.copy(alpha = 0.08f)
+        else -> PpSurfaceInput.copy(alpha = 0.55f)
+    }
+    val baseStyle = if (emphasized) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium
+    val textStyle = baseStyle.copy(
+        color = when {
+            value.isBlank() -> PpTextMuted.copy(alpha = 0.55f)
+            muted -> PpTextMuted
+            emphasized -> PpHeading
+            else -> PpText
+        },
+        fontWeight = if (emphasized) FontWeight.Bold else FontWeight.Medium,
+        fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
     )
+    BasicTextField(
+        value = value,
+        onValueChange = { value = it },
+        enabled = enabled,
+        textStyle = textStyle,
+        minLines = minLines,
+        maxLines = maxLines,
+        cursorBrush = SolidColor(PpAccent),
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.Sentences,
+            imeAction = ImeAction.Default,
+        ),
+        modifier = modifier
+            .onFocusChanged { state ->
+                val now = state.isFocused
+                if (focused && !now) {
+                    val next = value.trim()
+                    if (next != text) onSave(next)
+                }
+                focused = now
+            }
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, border, shape)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        decorationBox = { inner ->
+            Box(modifier = Modifier.fillMaxWidth()) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        color = PpTextMuted.copy(alpha = 0.55f),
+                        fontWeight = if (emphasized) FontWeight.Bold else FontWeight.Medium,
+                        fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+                        style = baseStyle,
+                    )
+                }
+                inner()
+            }
+        },
+    )
+}
+
+private class FieldDraft(var saved: String) {
+    var value: String = saved
 }
 
 @Composable
 private fun SelectionModeBanner(selectedCount: Int) {
+    val strings = LocalUiStrings.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1521,7 +1630,7 @@ private fun SelectionModeBanner(selectedCount: Int) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Выберите слова для набора · Выбрано: $selectedCount",
+            text = strings.dictionaryPickWordsForSet(selectedCount),
             style = MaterialTheme.typography.bodyMedium,
             color = PpHeading,
             fontWeight = FontWeight.SemiBold,
@@ -1535,6 +1644,7 @@ private fun SelectionModeBottomBar(
     onCancel: () -> Unit,
     onDone: () -> Unit,
 ) {
+    val strings = LocalUiStrings.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1542,83 +1652,67 @@ private fun SelectionModeBottomBar(
             .padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Button(
+        GlassOutlineButton(
+            text = strings.cancel,
             onClick = onCancel,
+            compact = true,
             modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.buttonColors(containerColor = PpSurfaceInput),
-        ) {
-            Text("Отмена", color = PpText)
-        }
-        Button(
+        )
+        GradientPrimaryButton(
+            text = strings.dictionaryDoneCount(selectedCount),
             onClick = onDone,
+            compact = true,
             modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
+        )
+    }
+}
+
+@Composable
+private fun DictionaryBulkBar(
+    selectedCount: Int,
+    onSendToStudio: () -> Unit,
+    onExport: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val strings = LocalUiStrings.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Готово ($selectedCount)", color = PpHeading)
-        }
-    }
-}
-
-@Composable
-private fun DictionarySelectionGroupRow(
-    collection: Collection,
-    cardIds: List<String>,
-    selectedIds: Set<String>,
-    onToggleFolder: (selectAll: Boolean) -> Unit,
-) {
-    val selectedInFolder = cardIds.count { it in selectedIds }
-    val toggleState = when {
-        cardIds.isEmpty() -> ToggleableState.Off
-        selectedInFolder == 0 -> ToggleableState.Off
-        selectedInFolder == cardIds.size -> ToggleableState.On
-        else -> ToggleableState.Indeterminate
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(PpAccent.copy(alpha = 0.12f))
-            .clickable {
-                onToggleFolder(toggleState != ToggleableState.On)
+            Text(
+                text = strings.dictionarySelectedCount(selectedCount),
+                style = MaterialTheme.typography.bodyMedium,
+                color = PpHeading,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onClear) {
+                Text(strings.clear, color = PpTextMuted)
             }
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TriStateCheckbox(
-            state = toggleState,
-            onClick = { onToggleFolder(toggleState != ToggleableState.On) },
-            colors = CheckboxDefaults.colors(checkedColor = PpAccent),
-        )
-        Text(
-            text = "${collection.title} · ${collection.cards.size}",
-            style = MaterialTheme.typography.labelMedium,
-            color = PpHeading,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 8.dp),
-        )
-    }
-}
-
-@Composable
-private fun DictionarySelectionWordRow(
-    card: WordCard,
-    checked: Boolean,
-    onToggle: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = { onToggle() },
-            colors = CheckboxDefaults.colors(checkedColor = PpAccent),
-        )
-        Column(modifier = Modifier.padding(start = 8.dp)) {
-            Text(card.pt, color = PpHeading, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
-            Text(card.ru, color = PpTextMuted, style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            GradientPrimaryButton(
+                text = strings.dictionarySendToStudio,
+                onClick = onSendToStudio,
+                compact = true,
+                modifier = Modifier.weight(1f),
+            )
+            GlassOutlineButton(
+                text = strings.dictionaryExportWords,
+                onClick = onExport,
+                compact = true,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -1634,10 +1728,10 @@ private fun buildDictionaryTableRows(
     collections: List<Collection>,
     searchQuery: String,
     includeNewWords: Boolean = true,
+    collapsedIds: Set<String> = emptySet(),
 ): List<DictionaryTableRow> {
     val q = searchQuery.trim().lowercase()
     val out = mutableListOf<DictionaryTableRow>()
-    var index = 0
     val sorted = collections.sortedBy { it.title.lowercase() }
     for (collection in sorted) {
         val cards = collection.cards
@@ -1648,12 +1742,14 @@ private fun buildDictionaryTableRows(
             if (collection.sourceType != "manual") continue
         }
         out += DictionaryTableRow.Group(collection)
-        for (card in cards) {
-            index++
-            out += DictionaryTableRow.WordRow(index, collection, card)
-        }
-        if (q.isEmpty() && includeNewWords) {
-            out += DictionaryTableRow.NewWord(collection)
+        val expanded = collection.id !in collapsedIds
+        if (expanded) {
+            cards.forEachIndexed { i, card ->
+                out += DictionaryTableRow.WordRow(i + 1, collection, card)
+            }
+            if (q.isEmpty() && includeNewWords) {
+                out += DictionaryTableRow.NewWord(collection)
+            }
         }
     }
     return out
@@ -1662,20 +1758,8 @@ private fun buildDictionaryTableRows(
 private fun matchesSearch(card: WordCard, q: String): Boolean {
     return card.pt.lowercase().contains(q) ||
         card.ru.lowercase().contains(q) ||
-        card.example.orEmpty().lowercase().contains(q)
-}
-
-private fun learnMarkForCard(card: WordCard): DictionaryLearnMark = when {
-    card.known -> DictionaryLearnMark.Good
-    card.due -> DictionaryLearnMark.Weak
-    else -> DictionaryLearnMark.Medium
-}
-
-@Composable
-private fun learnMarkRowColor(card: WordCard): androidx.compose.ui.graphics.Color = when (learnMarkForCard(card)) {
-    DictionaryLearnMark.Good -> PpAccent.copy(alpha = 0.08f)
-    DictionaryLearnMark.Medium -> androidx.compose.ui.graphics.Color(0xFFE8C547).copy(alpha = 0.12f)
-    DictionaryLearnMark.Weak -> androidx.compose.ui.graphics.Color(0xFFE85C5C).copy(alpha = 0.10f)
+        card.example.orEmpty().lowercase().contains(q) ||
+        card.exampleTranslation.orEmpty().lowercase().contains(q)
 }
 
 private fun sourceTypeLabel(sourceType: String?, strings: com.profconq.app.ui.i18n.UiStrings): String = when (sourceType) {
@@ -1695,3 +1779,16 @@ private fun searchFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = PpText,
     unfocusedTextColor = PpText,
 )
+
+private fun shareDictionaryWords(context: Context, cards: List<WordCard>, title: String) {
+    if (cards.isEmpty()) return
+    val text = cards.joinToString("\n") { card ->
+        listOf(card.pt, card.ru, card.example.orEmpty()).joinToString("\t")
+    }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, title)
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(Intent.createChooser(intent, title))
+}

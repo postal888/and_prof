@@ -6,9 +6,29 @@ enum class AppLanguage(val storageCode: Int) {
     PT(2),
     ;
 
+    fun displayName(ui: AppLanguage = this): String = when (ui) {
+        RU -> when (this) {
+            RU -> "Русский"
+            EN -> "Английский"
+            PT -> "Португальский"
+        }
+        EN -> when (this) {
+            RU -> "Russian"
+            EN -> "English"
+            PT -> "Portuguese"
+        }
+        PT -> when (this) {
+            RU -> "Russo"
+            EN -> "Inglês"
+            PT -> "Português"
+        }
+    }
+
     companion object {
         fun fromStorage(value: Int?): AppLanguage =
-            entries.find { it.storageCode == value } ?: EN
+            entries.find { it.storageCode == value } ?: DEFAULT
+
+        val DEFAULT: AppLanguage = PT
     }
 }
 
@@ -37,22 +57,10 @@ object SubtitleLanguage {
         else -> "Portuguese"
     }
 
-    fun label(value: Int, ui: AppLanguage): String = when (ui) {
-        AppLanguage.RU -> when (value) {
-            EN -> "English"
-            RU -> "Русский"
-            else -> "Português"
-        }
-        AppLanguage.EN -> when (value) {
-            EN -> "English"
-            RU -> "Russian"
-            else -> "Portuguese"
-        }
-        AppLanguage.PT -> when (value) {
-            EN -> "English"
-            RU -> "Russo"
-            else -> "Português"
-        }
+    fun label(value: Int, ui: AppLanguage): String = when (fromStorage(value)) {
+        EN -> AppLanguage.EN.displayName(ui)
+        RU -> AppLanguage.RU.displayName(ui)
+        else -> AppLanguage.PT.displayName(ui)
     }
 
     val all = listOf(PT, EN, RU)

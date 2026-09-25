@@ -21,7 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.CircularProgressIndicator
+import com.profconq.app.ui.components.GradientCircularLoader
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
@@ -146,9 +146,8 @@ fun WordTranslationBar(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                CircularProgressIndicator(
+                                GradientCircularLoader(
                                     modifier = Modifier.size(14.dp),
-                                    color = PpAccent,
                                     strokeWidth = 2.dp,
                                 )
                                 MutedText(strings.wordTranslationInProgress)
@@ -179,9 +178,8 @@ fun WordTranslationBar(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            CircularProgressIndicator(
+                            GradientCircularLoader(
                                 modifier = Modifier.size(14.dp),
-                                color = PpAccent,
                                 strokeWidth = 2.dp,
                             )
                             MutedText(strings.wordTranslationInProgress)

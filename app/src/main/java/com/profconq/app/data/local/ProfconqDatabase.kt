@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
         StudySetWordEntity::class,
         ReviewStateEntity::class,
     ],
-    version = 11,
+    version = 14,
     exportSchema = false,
 )
 abstract class ProfconqDatabase : RoomDatabase() {
@@ -131,6 +131,32 @@ abstract class ProfconqDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE cards ADD COLUMN learn_mark TEXT")
+                db.execSQL("UPDATE cards SET learn_mark = '5' WHERE known = 1")
+                db.execSQL("UPDATE cards SET learn_mark = '2' WHERE known = 0 AND due = 1")
+                db.execSQL("UPDATE cards SET learn_mark = '3' WHERE known = 0 AND due = 0")
+            }
+        }
+
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE youtube_watch_history ADD COLUMN published_at INTEGER")
+            }
+        }
+
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE cards SET learn_mark = '1' WHERE known = 0 AND (learn_mark IS NULL OR learn_mark = '')",
+                )
+                db.execSQL(
+                    "UPDATE cards SET learn_mark = '5' WHERE known = 1 AND (learn_mark IS NULL OR learn_mark = '')",
+                )
+            }
+        }
+
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -214,6 +240,9 @@ abstract class ProfconqDatabase : RoomDatabase() {
                     MIGRATION_8_9,
                     MIGRATION_9_10,
                     MIGRATION_10_11,
+                    MIGRATION_11_12,
+                    MIGRATION_12_13,
+                    MIGRATION_13_14,
                 )
                 .addCallback(SeedCallback())
                 .build()

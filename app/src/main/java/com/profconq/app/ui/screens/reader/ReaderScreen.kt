@@ -42,12 +42,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +54,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -84,7 +85,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.profconq.app.data.model.ReaderBook
 import com.profconq.app.data.model.SubtitleCursorMode
+import com.profconq.app.reader.readingProgressFraction
+import com.profconq.app.data.model.ReaderAutoScroll
 import com.profconq.app.data.model.ReaderLineSpacing
 import com.profconq.app.data.repository.ProfconqRepository
 import com.profconq.app.reader.ReaderDemoBooks
@@ -94,10 +98,16 @@ import com.profconq.app.reader.ReaderPaging
 import com.profconq.app.reader.ReaderViewModel
 import com.profconq.app.reader.ReaderViewModelFactory
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.profconq.app.ui.components.BookLibraryCover
+import com.profconq.app.ui.components.GradientPrimaryButton
+import com.profconq.app.ui.components.LoadingContent
+import com.profconq.app.ui.components.LoadingOverlay
 import com.profconq.app.ui.components.MutedText
 import com.profconq.app.ui.components.PortCard
 import com.profconq.app.ui.components.ProfconqLogo
+import com.profconq.app.ui.components.PortLayout
 import com.profconq.app.ui.components.TabScreenHeader
 import com.profconq.app.ui.navigation.MainTab
 import com.profconq.app.ui.i18n.LocalUiStrings
@@ -156,7 +166,7 @@ fun ReaderScreen(
                 .ifBlank { strings.readerImportedBookTitle }
             viewModel.importBook(title, content, uri.toString())
         }.onFailure { error ->
-            viewModel.showError(error.message ?: strings.readerImportFailed)
+            viewModel.showError(strings.userVisibleError(error, strings.readerImportFailed))
         }
     }
 
@@ -190,6 +200,7 @@ fun ReaderScreen(
             }
         },
     ) { padding ->
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         if (state.activeBookId == null) {
             ReaderLibrary(
                 state = state,
@@ -203,7 +214,10 @@ fun ReaderScreen(
                         ),
                     )
                 },
-                modifier = Modifier.padding(padding),
+            )
+            LoadingOverlay(
+                visible = state.isOpeningBook,
+                message = strings.readerOpeningBook,
             )
         } else {
             ReaderBookView(
@@ -218,6 +232,8 @@ fun ReaderScreen(
                 onCursorModeChange = viewModel::setCursorMode,
                 onFontSizeChange = viewModel::setReaderFontSizeLevel,
                 onLineSpacingChange = viewModel::setReaderLineSpacingPercent,
+                onAutoScrollEnabledChange = viewModel::setReaderAutoScrollEnabled,
+                onAutoScrollSpeedChange = viewModel::setReaderAutoScrollSpeed,
                 onWordClick = { token, paragraph ->
                     val example = if (state.wordContextExampleEnabled) {
                         SubtitlePhraseExtractor.extractAroundWord(
@@ -242,6 +258,7 @@ fun ReaderScreen(
                     ),
             )
         }
+        }
     }
 }
 
@@ -258,37 +275,32 @@ private fun ReaderLibrary(
         modifier = modifier
             .fillMaxSize()
             .portScreenBackground()
-            .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = PortLayout.Gutter),
+        verticalArrangement = Arrangement.spacedBy(PortLayout.HeaderToContent),
     ) {
         item {
-            Spacer(modifier = Modifier.height(6.dp))
             TabScreenHeader(tab = MainTab.Reader, subtitle = strings.readerScreenSubtitle)
         }
 
         item {
-            Button(
+            GradientPrimaryButton(
+                text = strings.readerImportButton,
                 onClick = onImport,
                 enabled = !state.isImporting,
+                loading = state.isImporting,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
-                shape = RoundedCornerShape(10.dp),
-            ) {
-                if (state.isImporting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.height(18.dp),
-                        color = PpHeading,
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Default.UploadFile, contentDescription = null, tint = PpHeading)
-                        Text(strings.readerImportButton, color = PpHeading)
-                    }
-                }
+                leading = {
+                    Icon(Icons.Default.UploadFile, contentDescription = null, tint = PpBrandNavy)
+                },
+            )
+        }
+
+        if (state.isImporting) {
+            item {
+                LoadingContent(
+                    message = strings.readerImportingBook,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
 
@@ -305,8 +317,8 @@ private fun ReaderLibrary(
         } else {
             items(state.books, key = { it.id }) { book ->
                 BookRow(
-                    title = book.title,
-                    preview = book.content.lineSequence().firstOrNull().orEmpty(),
+                    book = book,
+                    isOpening = state.isOpeningBook && state.openingBookId == book.id,
                     canDelete = book.id != ReaderDemoBooks.DEMO_ID,
                     onOpen = { onOpenBook(book.id) },
                     onDelete = { onDeleteBook(book.id) },
@@ -320,41 +332,46 @@ private fun ReaderLibrary(
 
 @Composable
 private fun BookRow(
-    title: String,
-    preview: String,
+    book: ReaderBook,
+    isOpening: Boolean,
     canDelete: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val progress = book.readingProgressFraction()
     PortCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpen),
+            .clickable(enabled = !isOpening, onClick = onOpen),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = PpHeading,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (preview.isNotBlank()) {
-                    MutedText(
-                        text = preview,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
+            BookLibraryCover(
+                progress = progress,
+                isLoading = isOpening,
+                showProgressRing = progress > 0.01f,
+            )
+            Text(
+                text = book.title,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(top = 4.dp),
+                style = MaterialTheme.typography.bodyLarge,
+                color = PpHeading,
+                fontWeight = FontWeight.Medium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
             if (canDelete) {
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Удалить", tint = PpDanger)
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = LocalUiStrings.current.delete,
+                        tint = PpDanger,
+                    )
                 }
             }
         }
@@ -365,22 +382,29 @@ private fun BookRow(
 private fun ReaderTypographyPanel(
     fontLevel: Int,
     lineSpacingPercent: Int,
+    autoScrollEnabled: Boolean,
+    autoScrollSpeed: Int,
     onFontSizeChange: (Int) -> Unit,
     onLineSpacingChange: (Int) -> Unit,
+    onAutoScrollEnabledChange: (Boolean) -> Unit,
+    onAutoScrollSpeedChange: (Int) -> Unit,
 ) {
+    val strings = LocalUiStrings.current
     val clampedFont = fontLevel.coerceIn(ReaderFontSize.MIN_LEVEL, ReaderFontSize.MAX_LEVEL)
     val clampedSpacing = lineSpacingPercent.coerceIn(ReaderLineSpacing.MIN_PERCENT, ReaderLineSpacing.MAX_PERCENT)
+    val clampedAutoScrollSpeed = autoScrollSpeed.coerceIn(ReaderAutoScroll.MIN_SPEED, ReaderAutoScroll.MAX_SPEED)
+    val fontPercent = ReaderFontSize.labelForLevel(clampedFont)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = PortLayout.Gutter, vertical = 6.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(PpSurfaceInput)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "Размер шрифта: ${ReaderFontSize.labelForLevel(clampedFont)}",
+            text = strings.readerFontSizeValue(fontPercent),
             color = PpText,
             style = MaterialTheme.typography.labelMedium,
         )
@@ -392,7 +416,7 @@ private fun ReaderTypographyPanel(
         )
 
         Text(
-            text = "Межстрочный интервал: ${clampedSpacing}%",
+            text = strings.readerLineSpacingValue(clampedSpacing),
             color = PpText,
             style = MaterialTheme.typography.labelMedium,
         )
@@ -402,6 +426,44 @@ private fun ReaderTypographyPanel(
             steps = ((ReaderLineSpacing.MAX_PERCENT - ReaderLineSpacing.MIN_PERCENT) / 5).coerceAtLeast(1),
             onValueChange = { onLineSpacingChange(it.toInt()) },
         )
+
+        HorizontalDivider(color = PpDivider)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = strings.readerAutoScrollLabel,
+                color = PpText,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Switch(
+                checked = autoScrollEnabled,
+                onCheckedChange = onAutoScrollEnabledChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = PpHeading,
+                    checkedTrackColor = PpAccent,
+                    uncheckedThumbColor = PpTextMuted,
+                    uncheckedTrackColor = PpSurface,
+                ),
+            )
+        }
+
+        if (autoScrollEnabled) {
+            Text(
+                text = "${strings.readerAutoScrollSpeedLabel}: ${strings.readerAutoScrollSpeedValue(clampedAutoScrollSpeed)}",
+                color = PpText,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Slider(
+                value = clampedAutoScrollSpeed.toFloat(),
+                valueRange = ReaderAutoScroll.MIN_SPEED.toFloat()..ReaderAutoScroll.MAX_SPEED.toFloat(),
+                steps = ReaderAutoScroll.MAX_SPEED - ReaderAutoScroll.MIN_SPEED - 1,
+                onValueChange = { onAutoScrollSpeedChange(it.toInt()) },
+            )
+        }
     }
 }
 
@@ -410,6 +472,7 @@ private fun ReaderBookmarkNotice(
     pageNumber: Int?,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalUiStrings.current
     val isSet = pageNumber != null
     Row(
         modifier = modifier
@@ -428,7 +491,7 @@ private fun ReaderBookmarkNotice(
                 color = PpAccent.copy(alpha = 0.45f),
                 shape = RoundedCornerShape(12.dp),
             )
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = PortLayout.Gutter, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -448,16 +511,16 @@ private fun ReaderBookmarkNotice(
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (isSet) "Закладка сохранена" else "Закладка снята",
+                text = if (isSet) strings.readerBookmarkSaved else strings.readerBookmarkRemoved,
                 color = PpHeading,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = if (isSet) {
-                    "Страница $pageNumber · долгое нажатие на ★ — перейти"
+                    strings.readerBookmarkPageHint(pageNumber!!)
                 } else {
-                    "Можно поставить снова на текущей странице"
+                    strings.readerBookmarkSetAgainHint
                 },
                 color = PpText,
                 style = MaterialTheme.typography.bodySmall,
@@ -473,12 +536,15 @@ private fun ReaderBottomBar(
     totalPages: Int,
     hasBookmark: Boolean,
     bookmarkOnCurrentPage: Boolean,
+    autoScrollEnabled: Boolean,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onPageIndicatorClick: () -> Unit,
+    onToggleAutoScroll: () -> Unit,
     onToggleBookmark: () -> Unit,
     onGoToBookmark: () -> Unit,
 ) {
+    val strings = LocalUiStrings.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -495,7 +561,7 @@ private fun ReaderBottomBar(
             IconButton(onClick = onPreviousPage, enabled = currentPage > 0) {
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    contentDescription = "Предыдущая страница",
+                    contentDescription = strings.readerPreviousPage,
                     tint = if (currentPage > 0) PpAccent else PpTextMuted,
                 )
             }
@@ -512,8 +578,29 @@ private fun ReaderBottomBar(
             IconButton(onClick = onNextPage, enabled = currentPage < totalPages - 1) {
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = "Следующая страница",
+                    contentDescription = strings.readerNextPage,
                     tint = if (currentPage < totalPages - 1) PpAccent else PpTextMuted,
+                )
+            }
+
+            IconButton(
+                onClick = onToggleAutoScroll,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (autoScrollEnabled) PpAccent.copy(alpha = 0.22f) else Color.Transparent,
+                    ),
+            ) {
+                Icon(
+                    imageVector = if (autoScrollEnabled) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (autoScrollEnabled) {
+                        strings.readerAutoScrollPause
+                    } else {
+                        strings.readerAutoScrollPlay
+                    },
+                    tint = if (autoScrollEnabled) PpAccent else PpTextMuted,
+                    modifier = Modifier.size(26.dp),
                 )
             }
 
@@ -544,9 +631,9 @@ private fun ReaderBottomBar(
                         Icons.Default.BookmarkBorder
                     },
                     contentDescription = if (hasBookmark) {
-                        "Закладка (долгое нажатие — перейти)"
+                        strings.readerBookmarkLongPressHint
                     } else {
-                        "Поставить закладку"
+                        strings.readerSetBookmark
                     },
                     tint = when {
                         bookmarkOnCurrentPage -> PpGold
@@ -569,14 +656,15 @@ private fun ReaderPageJumpDialog(
 ) {
     var pageInput by remember { mutableStateOf((initialPage + 1).toString()) }
 
+    val strings = LocalUiStrings.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Перейти на страницу", color = PpHeading) },
+        title = { Text(strings.readerGoToPageTitle, color = PpHeading) },
         text = {
             OutlinedTextField(
                 value = pageInput,
                 onValueChange = { pageInput = it.filter { ch -> ch.isDigit() }.take(6) },
-                label = { Text("Страница (1–$totalPages)") },
+                label = { Text(strings.readerPageFieldLabel(totalPages)) },
                 singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     keyboardType = KeyboardType.Number,
@@ -592,12 +680,12 @@ private fun ReaderPageJumpDialog(
                     onDismiss()
                 },
             ) {
-                Text("Перейти", color = PpAccent)
+                Text(strings.readerGoButton, color = PpAccent)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Отмена", color = PpTextMuted)
+                Text(strings.cancel, color = PpTextMuted)
             }
         },
         containerColor = PpSurface,
@@ -617,6 +705,8 @@ private fun ReaderBookView(
     onCursorModeChange: (SubtitleCursorMode) -> Unit,
     onFontSizeChange: (Int) -> Unit,
     onLineSpacingChange: (Int) -> Unit,
+    onAutoScrollEnabledChange: (Boolean) -> Unit,
+    onAutoScrollSpeedChange: (Int) -> Unit,
     onWordClick: (ReadingWordToken, String) -> Unit,
     onPhraseSelected: (String) -> Unit,
     onAddWord: () -> Unit,
@@ -713,6 +803,36 @@ private fun ReaderBookView(
         onJumpConsumed()
     }
 
+    LaunchedEffect(
+        state.readerAutoScrollEnabled,
+        state.readerAutoScrollSpeed,
+        scrollFrozen,
+        state.selectedWord,
+    ) {
+        if (!state.readerAutoScrollEnabled || scrollFrozen || state.selectedWord != null) {
+            return@LaunchedEffect
+        }
+        val speed = state.readerAutoScrollSpeed.coerceIn(
+            ReaderAutoScroll.MIN_SPEED,
+            ReaderAutoScroll.MAX_SPEED,
+        )
+        while (isActive) {
+            delay(ReaderAutoScroll.tickDelayMs(speed))
+            if (scrollFrozen || state.selectedWord != null) break
+            val info = listState.layoutInfo
+            if (info.totalItemsCount == 0) continue
+            val lastVisible = info.visibleItemsInfo.lastOrNull() ?: continue
+            val atBookEnd = bufferEndPage >= totalPages - 1 &&
+                lastVisible.index >= info.totalItemsCount - 1 &&
+                lastVisible.offset + lastVisible.size <= info.viewportEndOffset + 8
+            if (!atBookEnd) {
+                listState.scroll {
+                    scrollBy(ReaderAutoScroll.scrollStepPx(speed))
+                }
+            }
+        }
+    }
+
     LaunchedEffect(listState, bufferStartParagraph, bufferedParagraphs.size) {
         if (bufferedParagraphs.isEmpty()) return@LaunchedEffect
         snapshotFlow {
@@ -758,45 +878,41 @@ private fun ReaderBookView(
         )
     }
 
+    val strings = LocalUiStrings.current
     Column(
         modifier = modifier
             .fillMaxSize()
             .portScreenBackground(),
     ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(PpSurface)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = PpAccent)
-                }
-                ProfconqLogo(size = 32.dp)
-                Text(
-                    text = state.activeBookTitle.orEmpty(),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = PpHeading,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                IconButton(onClick = { showTypographyPanel = !showTypographyPanel }) {
-                    Icon(
-                        imageVector = if (showTypographyPanel) Icons.Default.KeyboardArrowUp else Icons.Default.Settings,
-                        contentDescription = "Шрифт и интервал",
-                        tint = PpAccent,
-                    )
-                }
-            }
+            TabScreenHeader(
+                title = state.activeBookTitle.orEmpty(),
+                subtitle = strings.tabRead,
+                onBack = onBack,
+                modifier = Modifier.padding(horizontal = PortLayout.Gutter),
+                actions = {
+                    IconButton(
+                        onClick = { showTypographyPanel = !showTypographyPanel },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (showTypographyPanel) Icons.Default.KeyboardArrowUp else Icons.Default.Settings,
+                            contentDescription = strings.readerFontAndSpacing,
+                            tint = PpHeading,
+                        )
+                    }
+                },
+            )
 
             if (showTypographyPanel) {
                 ReaderTypographyPanel(
                     fontLevel = state.readerFontSizeLevel,
                     lineSpacingPercent = state.readerLineSpacingPercent,
+                    autoScrollEnabled = state.readerAutoScrollEnabled,
+                    autoScrollSpeed = state.readerAutoScrollSpeed,
                     onFontSizeChange = onFontSizeChange,
                     onLineSpacingChange = onLineSpacingChange,
+                    onAutoScrollEnabledChange = onAutoScrollEnabledChange,
+                    onAutoScrollSpeedChange = onAutoScrollSpeedChange,
                 )
             }
 
@@ -804,7 +920,7 @@ private fun ReaderBookView(
                 CursorModeToggle(
                     mode = cursorMode,
                     onModeChange = onCursorModeChange,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = PortLayout.Gutter, vertical = 4.dp),
                 )
             }
 
@@ -824,7 +940,7 @@ private fun ReaderBookView(
                         pendingPhraseSelection = ""
                         selectionGestureActive = false
                     },
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = PortLayout.Gutter, vertical = 4.dp),
                 )
             }
 
@@ -834,7 +950,7 @@ private fun ReaderBookView(
                     canAddToDictionary = !word.isPhrase || state.phraseCopyEnabled,
                     onAdd = onAddWord,
                     onDismiss = onDismissWord,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = PortLayout.Gutter, vertical = 8.dp),
                 )
             }
 
@@ -848,7 +964,7 @@ private fun ReaderBookView(
                     userScrollEnabled = !scrollFrozen,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 14.dp),
+                        .padding(horizontal = PortLayout.Gutter),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     item { Spacer(modifier = Modifier.height(4.dp)) }
@@ -864,7 +980,7 @@ private fun ReaderBookView(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(PpSurfaceInput)
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                .padding(horizontal = PortLayout.Gutter, vertical = 12.dp),
                         ) {
                             InteractiveParagraph(
                                 text = paragraph,
@@ -905,7 +1021,7 @@ private fun ReaderBookView(
                 visible = bookmarkFeedback != null,
                 enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = PortLayout.Gutter, vertical = 4.dp),
             ) {
                 bookmarkFeedback?.let { feedback ->
                     ReaderBookmarkNotice(pageNumber = feedback.pageNumber)
@@ -917,6 +1033,7 @@ private fun ReaderBookView(
             totalPages = totalPages,
             hasBookmark = state.bookmarkParagraph != null,
             bookmarkOnCurrentPage = bookmarkOnCurrentPage,
+            autoScrollEnabled = state.readerAutoScrollEnabled,
             onPreviousPage = {
                 if (currentPage > 0) {
                     onJumpToPage(currentPage - 1)
@@ -928,6 +1045,7 @@ private fun ReaderBookView(
                 }
             },
             onPageIndicatorClick = { showPageJumpDialog = true },
+            onToggleAutoScroll = { onAutoScrollEnabledChange(!state.readerAutoScrollEnabled) },
             onToggleBookmark = onToggleBookmark,
             onGoToBookmark = onGoToBookmark,
         )

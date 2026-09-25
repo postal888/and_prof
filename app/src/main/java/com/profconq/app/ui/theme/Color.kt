@@ -72,3 +72,12 @@ val PpWarning: Color
     @Composable @ReadOnlyComposable get() = palette.warning
 val PpPurple: Color
     @Composable @ReadOnlyComposable get() = palette.purple
+
+val PpGlassSurface: Color
+    @Composable @ReadOnlyComposable get() = palette.glassSurface
+val PpGlassBorder: Color
+    @Composable @ReadOnlyComposable get() = palette.glassBorder
+val PpNeonGreen: Color
+    @Composable @ReadOnlyComposable get() = palette.neonGreen
+val PpNeonCyan: Color
+    @Composable @ReadOnlyComposable get() = palette.neonCyan

@@ -66,4 +66,8 @@ object AudioMp3Exporter {
         }
         lame.close()
     }
+
+    fun writePcmToMp3(pcm: PcmAudio, outFile: File) {
+        writeMp3(pcm, outFile)
+    }
 }

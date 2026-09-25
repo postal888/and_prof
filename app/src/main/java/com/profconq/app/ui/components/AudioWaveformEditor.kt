@@ -20,7 +20,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import com.profconq.app.ui.components.GradientCircularLoader
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,6 +60,7 @@ import com.profconq.app.media.AudioTrimExporter
 import com.profconq.app.media.formatAudioTime
 import com.profconq.app.ui.i18n.LocalUiStrings
 import com.profconq.app.ui.theme.PpAccent
+import com.profconq.app.ui.theme.PpBrandNavy
 import com.profconq.app.ui.theme.PpHeading
 import com.profconq.app.ui.theme.PpPlay
 import com.profconq.app.ui.theme.PpSurfaceInput
@@ -172,7 +173,7 @@ fun AudioTrimEditorContent(
                         .height(96.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator(color = PpAccent, modifier = Modifier.size(32.dp))
+                    GradientCircularLoader(modifier = Modifier.size(32.dp))
                 }
             }
             error != null -> {
@@ -264,9 +265,12 @@ fun AudioTrimEditorContent(
                 },
                 enabled = !loading && error == null && !saving,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = PpAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PpAccent,
+                    contentColor = PpBrandNavy,
+                ),
             ) {
-                Text(strings.audioTrimSave, color = PpHeading)
+                Text(strings.audioTrimSave, color = PpBrandNavy)
             }
             TextButton(
                 onClick = { onResult(AudioTrimResult.Deleted) },

@@ -3,10 +3,12 @@
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -20,22 +22,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.profconq.app.ui.i18n.LocalUiStrings
 import com.profconq.app.ui.theme.PpAccent
-import com.profconq.app.ui.theme.PpBorder
 import com.profconq.app.ui.theme.PpHeading
-import com.profconq.app.ui.theme.PpSurface
 import com.profconq.app.ui.theme.PpTextMuted
 
 @Composable
 fun PortCard(
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
-    Box(
+    Column(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(PpSurface)
-            .border(1.dp, PpBorder, RoundedCornerShape(12.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .glassCard(cornerRadius = 16.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         content()
     }
@@ -107,6 +106,22 @@ fun AccentHighlight(text: String) {
         text = text,
         color = PpAccent,
         fontWeight = FontWeight.Medium,
+    )
+}
+
+@Composable
+fun OverlayBottomBar(
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = PortLayout.Gutter, vertical = 12.dp)
+            .heightIn(min = 44.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
     )
 }
 

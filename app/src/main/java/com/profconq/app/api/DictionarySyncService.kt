@@ -1,5 +1,6 @@
 package com.profconq.app.api
 
+import com.profconq.app.analytics.ProfconqAnalytics
 import com.profconq.app.auth.AuthUser
 import com.profconq.app.data.repository.ProfconqRepository
 import org.json.JSONArray
@@ -16,6 +17,8 @@ class DictionarySyncService(
             displayName = authUser?.displayName,
         )
         repository.setPremiumUser(account.isPremium)
+        // plan пишется только по ответу сервера: локальный флаг до /api/me считается устаревшим.
+        ProfconqAnalytics.setPlan(account.isPremium)
         if (!account.isPremium) {
             repository.setWordLimit(account.wordLimit)
         }
@@ -30,6 +33,7 @@ class DictionarySyncService(
             displayName = authUser?.displayName,
         )
         repository.setPremiumUser(account.isPremium)
+        ProfconqAnalytics.setPlan(account.isPremium)
         if (!account.isPremium) {
             repository.setWordLimit(account.wordLimit)
         }
@@ -78,6 +82,10 @@ class DictionarySyncService(
             repository.mirrorImportProgramsFromWebsite(programs)
         }
         apiClient.pullSyncJson("program_progress")
+        runCatching {
+            // Studio collections live inside settings blob on the website.
+            // Wired via StudioSyncService when user opens Studio; keep vocab sync lean here.
+        }
         val account = refreshAccount(authUser)
         return MirrorSyncResult(
             account = account.copy(wordCount = words.size),

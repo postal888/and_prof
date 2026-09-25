@@ -30,9 +30,12 @@ import com.profconq.app.data.model.SubtitleFontSize
 import com.profconq.app.data.model.Collection
 import com.profconq.app.data.model.DictionaryEntry
 import com.profconq.app.data.model.ProgressSnapshot
+import com.profconq.app.data.model.ReaderAutoScroll
 import com.profconq.app.data.model.ReaderLineSpacing
 import com.profconq.app.reader.ReaderFontSize
 import com.profconq.app.data.model.TodayPlan
+import com.profconq.app.data.model.DailyStudyActivity
+import com.profconq.app.data.model.VocabLearnMark
 import com.profconq.app.progress.ProgressCalculator
 import com.profconq.app.progress.ProgressKeys
 import com.profconq.app.progress.ProgressTracker
@@ -72,6 +75,7 @@ object SyncKeys {
 object AppSettingsKeys {
     const val CHATGPT_TRANSLATION = "settings.chatgpt"
     const val DICTIONARY_COPY = "settings.dict_copy"
+    const val YOUTUBE_BACKGROUND = "settings.youtube_background"
     const val WORD_CONTEXT_EXAMPLE = "settings.word_context"
     const val SUBTITLE_FONT = "settings.subtitle_font"
     const val UI_LANGUAGE = "settings.ui_language"
@@ -79,6 +83,8 @@ object AppSettingsKeys {
     const val TRANSLATION_TARGET_LANGUAGE = "settings.translation_target_language"
     const val READER_LINE_SPACING = "settings.reader_line_spacing"
     const val READER_FONT = "settings.reader_font"
+    const val READER_AUTO_SCROLL = "settings.reader_auto_scroll"
+    const val READER_AUTO_SCROLL_SPEED = "settings.reader_auto_scroll_speed"
     const val THEME_MODE = "settings.theme_mode"
 }
 
@@ -96,14 +102,19 @@ class ProfconqRepository(
         collectionDao.observeCollectionsWithCards().map { rows -> rows.map { it.toModel() } }
 
     val studySets: Flow<List<StudySet>> =
-        studySetDao.observeAllSets().map { rows ->
+        combine(
+            studySetDao.observeAllSets(),
+            studySetDao.observeStudioCounts(),
+        ) { rows, studioCounts ->
             val now = System.currentTimeMillis()
+            val studioBySet = studioCounts.associate { it.setId to it.studioCount }
             rows.map { entity ->
                 val stats = reviewStateDao.getSetStats(entity.id, now)
                 entity.toStudySet(
                     newCount = stats.newCount,
                     dueCount = stats.dueCount,
                     masteredCount = stats.masteredCount,
+                    studioCount = studioBySet[entity.id] ?: 0,
                 )
             }
         }.flowOn(Dispatchers.IO)
@@ -147,8 +158,9 @@ class ProfconqRepository(
             appStateDao.observeInt(AppSettingsKeys.DICTIONARY_COPY),
             appStateDao.observeInt(AppSettingsKeys.SUBTITLE_FONT),
             appStateDao.observeInt(AppSettingsKeys.WORD_CONTEXT_EXAMPLE),
-        ) { chatGpt, dictCopy, subtitleFont, wordContext ->
-            Triple(chatGpt, dictCopy, subtitleFont to wordContext)
+            appStateDao.observeInt(AppSettingsKeys.YOUTUBE_BACKGROUND),
+        ) { chatGpt, dictCopy, subtitleFont, wordContext, youtubeBackground ->
+            Pair(Triple(chatGpt, dictCopy, subtitleFont), Pair(wordContext, youtubeBackground))
         },
         combine(
             combine(
@@ -162,35 +174,54 @@ class ProfconqRepository(
                 appStateDao.observeInt(AppSettingsKeys.READER_LINE_SPACING),
                 appStateDao.observeInt(AppSettingsKeys.READER_FONT),
                 appStateDao.observeInt(AppSettingsKeys.THEME_MODE),
-            ) { readerLineSpacing, readerFont, themeMode ->
-                Triple(readerLineSpacing, readerFont, themeMode)
+                appStateDao.observeInt(AppSettingsKeys.READER_AUTO_SCROLL),
+                appStateDao.observeInt(AppSettingsKeys.READER_AUTO_SCROLL_SPEED),
+            ) { readerLineSpacing, readerFont, themeMode, autoScroll, autoScrollSpeed ->
+                listOf(readerLineSpacing, readerFont, themeMode, autoScroll, autoScrollSpeed)
             },
         ) { studyLangs, readerPrefs ->
             val (uiLanguage, sourceLang, targetLang) = studyLangs
-            val (readerLineSpacing, readerFont, themeMode) = readerPrefs
-            Triple(uiLanguage, sourceLang to targetLang, Triple(readerLineSpacing, readerFont, themeMode))
+            val readerLineSpacing = readerPrefs[0]
+            val readerFont = readerPrefs[1]
+            val themeMode = readerPrefs[2]
+            val autoScroll = readerPrefs[3]
+            val autoScrollSpeed = readerPrefs[4]
+            Triple(
+                uiLanguage,
+                sourceLang to targetLang,
+                listOf(readerLineSpacing, readerFont, themeMode, autoScroll, autoScrollSpeed),
+            )
         },
     ) { base, localeAndReader ->
-        val (chatGpt, dictCopy, subtitlePrefs) = base
-        val (subtitleFont, wordContext) = subtitlePrefs
+        val (corePrefs, contextPrefs) = base
+        val (chatGpt, dictCopy, subtitleFont) = corePrefs
+        val (wordContext, youtubeBackground) = contextPrefs
         val (uiLanguage, studyLangs, readerPrefs) = localeAndReader
         val (sourceLang, targetLang) = studyLangs
-        val (readerLineSpacing, readerFont, themeMode) = readerPrefs
+        val readerLineSpacing = readerPrefs[0]
+        val readerFont = readerPrefs[1]
+        val themeMode = readerPrefs[2]
+        val autoScroll = readerPrefs[3]
+        val autoScrollSpeed = readerPrefs[4]
         val subtitleLevel = (subtitleFont ?: SubtitleFontSize.DEFAULT_LEVEL)
             .coerceIn(SubtitleFontSize.MIN_LEVEL, SubtitleFontSize.MAX_LEVEL)
         AppSettings(
             useChatGptTranslation = (chatGpt ?: 1) != 0,
             phraseCopyEnabled = (dictCopy ?: 1) != 0,
             wordContextExampleEnabled = (wordContext ?: 1) != 0,
+            youtubeBackgroundPlayback = (youtubeBackground ?: 0) != 0,
             themeMode = AppThemeMode.fromStorage(themeMode),
             subtitleFontSizeLevel = subtitleLevel,
             readerFontSizeLevel = (readerFont ?: ReaderFontSize.fromSubtitleLevel(subtitleLevel))
                 .coerceIn(ReaderFontSize.MIN_LEVEL, ReaderFontSize.MAX_LEVEL),
-            uiLanguage = uiLanguage ?: AppLanguage.EN.storageCode,
+            uiLanguage = AppLanguage.fromStorage(uiLanguage).storageCode,
             translationSourceLanguage = SubtitleLanguage.fromStorage(sourceLang),
             translationTargetLanguage = SubtitleLanguage.fromStorage(targetLang ?: SubtitleLanguage.RU),
             readerLineSpacingPercent = (readerLineSpacing ?: ReaderLineSpacing.DEFAULT_PERCENT)
                 .coerceIn(ReaderLineSpacing.MIN_PERCENT, ReaderLineSpacing.MAX_PERCENT),
+            readerAutoScrollEnabled = (autoScroll ?: 0) != 0,
+            readerAutoScrollSpeed = (autoScrollSpeed ?: ReaderAutoScroll.DEFAULT_SPEED)
+                .coerceIn(ReaderAutoScroll.MIN_SPEED, ReaderAutoScroll.MAX_SPEED),
         )
     }
 
@@ -207,6 +238,15 @@ class ProfconqRepository(
         appStateDao.upsert(
             AppStateEntity(
                 key = AppSettingsKeys.DICTIONARY_COPY,
+                intValue = if (enabled) 1 else 0,
+            ),
+        )
+    }
+
+    suspend fun setYoutubeBackgroundPlayback(enabled: Boolean) {
+        appStateDao.upsert(
+            AppStateEntity(
+                key = AppSettingsKeys.YOUTUBE_BACKGROUND,
                 intValue = if (enabled) 1 else 0,
             ),
         )
@@ -284,6 +324,24 @@ class ProfconqRepository(
         )
     }
 
+    suspend fun setReaderAutoScrollEnabled(enabled: Boolean) {
+        appStateDao.upsert(
+            AppStateEntity(
+                key = AppSettingsKeys.READER_AUTO_SCROLL,
+                intValue = if (enabled) 1 else 0,
+            ),
+        )
+    }
+
+    suspend fun setReaderAutoScrollSpeed(speed: Int) {
+        appStateDao.upsert(
+            AppStateEntity(
+                key = AppSettingsKeys.READER_AUTO_SCROLL_SPEED,
+                intValue = speed.coerceIn(ReaderAutoScroll.MIN_SPEED, ReaderAutoScroll.MAX_SPEED),
+            ),
+        )
+    }
+
     fun observeSavedWordsForVideo(videoId: String): Flow<Set<String>> =
         collectionDao.observeCollectionsWithCards().map { rows ->
             rows
@@ -352,6 +410,17 @@ class ProfconqRepository(
         )
     }
 
+    val dailyActivities: Flow<List<DailyStudyActivity>> =
+        dailyActivityDao.observeAll().map { rows ->
+            rows.map { row ->
+                DailyStudyActivity(
+                    dateKey = row.dateKey,
+                    cardsStudied = row.cardsStudied,
+                    minutesActive = row.minutesActive,
+                )
+            }
+        }
+
     val progressSnapshot: Flow<ProgressSnapshot> = combine(
         combine(
             collections,
@@ -415,7 +484,7 @@ class ProfconqRepository(
     }
 
     suspend fun markCardKnown(cardId: String) {
-        collectionDao.updateCardProgress(cardId, due = false, known = true)
+        collectionDao.updateCardProgress(cardId, due = false, known = true, learnMark = "5")
         val stats = cardStats()
         ProgressTracker.recordCardStudied(
             dailyActivityDao = dailyActivityDao,
@@ -426,11 +495,11 @@ class ProfconqRepository(
     }
 
     suspend fun markCardLearning(cardId: String) {
-        collectionDao.updateCardProgress(cardId, due = false, known = false)
+        collectionDao.updateCardProgress(cardId, due = false, known = false, learnMark = "3")
     }
 
     suspend fun markCardRepeat(cardId: String) {
-        collectionDao.updateCardProgress(cardId, due = true, known = false)
+        collectionDao.updateCardProgress(cardId, due = true, known = false, learnMark = "2")
         val stats = cardStats()
         ProgressTracker.recordCardStudied(
             dailyActivityDao = dailyActivityDao,
@@ -438,6 +507,39 @@ class ProfconqRepository(
             cardsKnown = stats.first,
             totalCards = stats.second,
         )
+    }
+
+    suspend fun setCardLampLevel(cardId: String, level: Int) {
+        val next = level.coerceIn(VocabLearnMark.DEFAULT, VocabLearnMark.MASTER)
+        collectionDao.updateCardProgress(
+            cardId = cardId,
+            due = VocabLearnMark.due(next),
+            known = VocabLearnMark.known(next),
+            learnMark = VocabLearnMark.storage(next),
+        )
+    }
+
+    suspend fun setCardLearnMark(cardId: String, mark: String) {
+        val requested = VocabLearnMark.level(mark)
+        if (requested !in 1..5) return
+        val card = collectionDao.getCardsByIds(listOf(cardId)).firstOrNull() ?: return
+        val current = VocabLearnMark.level(card.learnMark, card.known, card.due)
+        val next = if (current == requested) 0 else requested
+        collectionDao.updateCardProgress(
+            cardId = cardId,
+            due = VocabLearnMark.due(next),
+            known = VocabLearnMark.known(next),
+            learnMark = VocabLearnMark.storage(next),
+        )
+        if (next == 5 || next in 1..2) {
+            val stats = cardStats()
+            ProgressTracker.recordCardStudied(
+                dailyActivityDao = dailyActivityDao,
+                appStateDao = appStateDao,
+                cardsKnown = stats.first,
+                totalCards = stats.second,
+            )
+        }
     }
 
     suspend fun recordYouTubeSeconds(seconds: Int) {
@@ -471,6 +573,7 @@ class ProfconqRepository(
         duration: String? = null,
         isShort: Boolean = false,
         positionSec: Float = 0f,
+        publishedAtMillis: Long? = null,
     ) {
         val existing = youtubeWatchHistoryDao.getByVideoId(videoId)
         val now = System.currentTimeMillis()
@@ -485,6 +588,7 @@ class ProfconqRepository(
                 lastWatchedAt = now,
                 lastPositionSec = positionSec.coerceAtLeast(0f),
                 watchCount = (existing?.watchCount ?: 0) + 1,
+                publishedAt = publishedAtMillis ?: existing?.publishedAt,
             ),
         )
     }
@@ -675,7 +779,7 @@ class ProfconqRepository(
             ipa = card.ipa,
             sourceTitle = card.sourceTitle,
             chapterOrTag = card.chapterOrTag,
-            exampleTranslation = card.exampleTranslation,
+            exampleTranslation = card.exampleTranslation?.trim()?.takeIf { it.isNotEmpty() },
             isFavorite = card.isFavorite,
         )
         val hadAudio = existing?.let { cardAudioPathsFrom(it).isNotEmpty() } == true
@@ -948,6 +1052,10 @@ class ProfconqRepository(
     suspend fun getWordIdsInStudySet(setId: String): List<String> =
         studySetDao.getWordIdsInSet(setId)
 
+    /** Studio playlist: words in the set that are not marked known (green lamp). */
+    suspend fun getStudioWordIdsInStudySet(setId: String): List<String> =
+        studySetDao.getStudioWordIdsInSet(setId)
+
     suspend fun retainOnlyWordsInStudySet(setId: String, keepWordIds: Iterable<String>) {
         val keep = keepWordIds.toSet()
         val current = studySetDao.getWordIdsInSet(setId)
@@ -959,6 +1067,12 @@ class ProfconqRepository(
 
     suspend fun deleteStudySet(setId: String) {
         studySetDao.deleteSet(setId)
+    }
+
+    suspend fun renameStudySet(setId: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        studySetDao.updateName(setId, trimmed)
     }
 
     suspend fun markStudySetPracticed(setId: String) {
@@ -999,6 +1113,7 @@ class ProfconqRepository(
         newCount: Int = 0,
         dueCount: Int = 0,
         masteredCount: Int = 0,
+        studioCount: Int = 0,
     ): StudySet =
         StudySet(
             id = id,
@@ -1009,6 +1124,7 @@ class ProfconqRepository(
             newCount = newCount,
             dueCount = dueCount,
             masteredCount = masteredCount,
+            studioCount = studioCount,
         )
 
     private fun CardEntity.toModel(): WordCard {
@@ -1032,6 +1148,7 @@ class ProfconqRepository(
             chapterOrTag = chapterOrTag,
             exampleTranslation = exampleTranslation,
             isFavorite = isFavorite,
+            learnMark = learnMark,
         )
     }
 
@@ -1071,6 +1188,7 @@ class ProfconqRepository(
             lastWatchedAt = lastWatchedAt,
             lastPositionSec = lastPositionSec,
             watchCount = watchCount,
+            publishedAtMillis = publishedAt,
         )
 
     private suspend fun cardStats(): Pair<Int, Int> {
@@ -1195,6 +1313,80 @@ class ProfconqRepository(
         return null
     }
 
+    suspend fun findCardIdByNormalizedPtForStudio(normalizedPt: String): String? =
+        findCardIdByNormalizedPt(normalizedPt)
+
+    /**
+     * Insert or update a demo Studio card in a dedicated local collection.
+     * Does not enforce free-tier word limit (demo seed only).
+     */
+    suspend fun upsertStudioDemoCard(
+        pt: String,
+        ru: String,
+        example: String?,
+        exampleTranslation: String?,
+        tag: String,
+    ): String {
+        val normalized = WordNormalizer.normalize(pt)
+        val existingId = findCardIdByNormalizedPt(normalized)
+        if (existingId != null) {
+            val existing = collectionDao.getCardsByIds(listOf(existingId)).firstOrNull()
+            if (existing != null) {
+                collectionDao.updateCardContent(
+                    cardId = existing.id,
+                    pt = pt.trim(),
+                    ru = ru.trim(),
+                    example = example ?: existing.example,
+                    imagePath = existing.imagePath,
+                    audioPath = existing.audioPath,
+                    audioPathsJson = existing.audioPaths,
+                    audioLabelsJson = existing.audioLabels,
+                    imageUrl = existing.imageUrl,
+                    partOfSpeech = tag.ifBlank { existing.partOfSpeech.orEmpty() },
+                    ipa = existing.ipa,
+                    sourceTitle = existing.sourceTitle,
+                    chapterOrTag = existing.chapterOrTag,
+                    exampleTranslation = exampleTranslation ?: existing.exampleTranslation,
+                    isFavorite = existing.isFavorite,
+                )
+                return existing.id
+            }
+        }
+        val collectionId = ensureStudioDemoCollection()
+        val cardId = "studio-demo-$normalized"
+        collectionDao.insertCards(
+            listOf(
+                CardEntity(
+                    id = cardId,
+                    collectionId = collectionId,
+                    pt = pt.trim(),
+                    ru = ru.trim(),
+                    example = example,
+                    due = true,
+                    known = false,
+                    partOfSpeech = tag,
+                    exampleTranslation = exampleTranslation,
+                ),
+            ),
+        )
+        return cardId
+    }
+
+    private suspend fun ensureStudioDemoCollection(): String {
+        val id = "studio-demo"
+        if (collectionDao.getCollection(id) == null) {
+            collectionDao.insertCollection(
+                CollectionEntity(
+                    id = id,
+                    title = "Studio demo",
+                    description = "Sample cards from profconq.com",
+                    sourceType = "studio-demo",
+                ),
+            )
+        }
+        return id
+    }
+
     suspend fun countVocabularyWords(): Int = buildWebVocabularyWords().size
 
     private suspend fun hasVocabularyWord(normalizedPt: String): Boolean {
@@ -1210,15 +1402,27 @@ class ProfconqRepository(
     suspend fun buildWebVocabularyWords(): List<WebVocabWord> {
         val result = mutableListOf<WebVocabWord>()
         var nextId = 1
-        for (collection in collectionDao.getCollections()) {
+        val collections = collectionDao.getCollections()
+        for (collection in collections) {
             for (card in collectionDao.getCardsForCollection(collection.id)) {
                 result.add(card.toWebVocabWord(collection, nextId++))
             }
         }
+        val collectionById = collections.associateBy { it.id }
+        val collectionByVideoId = collections.mapNotNull { collection ->
+            collection.videoId?.trim()?.takeIf { it.isNotEmpty() }?.let { it to collection }
+        }.toMap()
         val cardPts = result.map { WordNormalizer.normalize(it.word) }.toSet()
         for (entry in dictionaryDao.getAll()) {
             val normalized = WordNormalizer.normalize(entry.pt)
             if (normalized in cardPts) continue
+            // A dictionary row remembers its folder only as a collection/video id. The title has to
+            // travel with a real id: a row whose only home is the app's catch-all collection must
+            // reach the website with neither, or the "Sync" placeholder name becomes a folder there.
+            val home = listOfNotNull(
+                entry.collectionId?.let { collectionById[it] },
+                entry.videoId?.let { collectionByVideoId[it] },
+            ).firstOrNull { it.syncFolderId() != null }
             result.add(
                 WebVocabWord(
                     id = nextId++,
@@ -1226,7 +1430,8 @@ class ProfconqRepository(
                     translation = entry.ru,
                     example = entry.example.orEmpty(),
                     tag = "geral",
-                    videoId = entry.videoId,
+                    videoId = home?.syncFolderId(),
+                    videoTitle = home?.title,
                 ),
             )
         }
@@ -1235,31 +1440,116 @@ class ProfconqRepository(
 
     suspend fun applyWebVocabularyWords(words: List<WebVocabWord>) {
         for (word in words) {
-            if (!word.videoId.isNullOrBlank()) {
-                addWordFromYouTube(
-                    videoId = word.videoId,
-                    videoTitle = word.videoTitle.orEmpty(),
-                    pt = word.word,
-                    ru = word.translation,
-                    example = word.example.takeIf { it.isNotBlank() },
-                    enforceLimit = false,
-                )
-            } else {
+            val folderId = word.videoId?.trim()?.takeIf { it.isNotEmpty() }
+            if (folderId == null) {
                 addWordToCloudCollection(
                     pt = word.word,
                     ru = word.translation,
                     example = word.example.takeIf { it.isNotBlank() },
+                    exampleTranslation = word.exampleRu.takeIf { it.isNotBlank() },
                     tag = word.tag,
                     infinitivo = word.infinitivo,
                 )
+                continue
             }
+            addWordToSyncedCollection(resolveSyncCollection(folderId, word.videoTitle.orEmpty()), word)
         }
+    }
+
+    /**
+     * Resolves a synced folder id to a local collection. A plain 11-character id is a YouTube
+     * video; the app also syncs its own collection ids, and the website contributes `book-…` and
+     * `folder…` namespaces. The prefixes are matched before the bare id shape, because a short
+     * `folder_t_xy` is exactly as long as a video id, and routing it through the YouTube path used
+     * to invent a "watch this video" collection titled after the id.
+     */
+    private suspend fun resolveSyncCollection(folderId: String, title: String): String {
+        collectionDao.getCollectionByVideoId(folderId)?.let { videoCollection ->
+            if (title.isNotBlank()) collectionDao.updateCollectionTitle(videoCollection.id, title)
+            return videoCollection.id
+        }
+        collectionDao.getCollection(folderId)?.let { ownCollection ->
+            if (title.isNotBlank() && ownCollection.title.startsWith("YouTube ")) {
+                collectionDao.updateCollectionTitle(ownCollection.id, title)
+            }
+            return ownCollection.id
+        }
+        if (folderId.startsWith("book-")) {
+            return ensureReaderCollection(folderId.removePrefix("book-"), title)
+        }
+        if (!folderId.startsWith("folder") && YOU_TUBE_VIDEO_ID_PATTERN.matches(folderId)) {
+            return ensureYouTubeCollection(folderId, title)
+        }
+        collectionDao.insertCollection(
+            CollectionEntity(
+                id = folderId,
+                title = title.ifBlank { folderId },
+                description = uiStrings().syncCollectionDescription,
+                sourceType = "manual",
+            ),
+        )
+        return folderId
+    }
+
+    /** Upserts one synced word into [collectionId], keeping every field the local row already has. */
+    private suspend fun addWordToSyncedCollection(collectionId: String, word: WebVocabWord) {
+        val normalized = WordNormalizer.normalize(word.word)
+        if (normalized.isEmpty()) return
+        val example = word.example.trim().takeIf { it.isNotEmpty() }
+        val exampleTranslation = word.exampleRu.trim().takeIf { it.isNotEmpty() }
+        val partOfSpeech = word.tag.trim().takeIf { it.isNotEmpty() }
+        val infinitivo = word.infinitivo.trim().takeIf { it.isNotEmpty() }
+        // The website stores either a pasted URL or a bare upload path in this slot, and a relative
+        // path resolves to nothing on the device.
+        val image = word.img.trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }
+
+        val existing = collectionDao.getCardsForCollection(collectionId)
+            .firstOrNull { WordNormalizer.normalize(it.pt) == normalized }
+        if (existing != null) {
+            collectionDao.updateCardContent(
+                cardId = existing.id,
+                pt = word.word.trim(),
+                ru = word.translation.trim(),
+                example = example ?: existing.example,
+                imagePath = existing.imagePath,
+                audioPath = existing.audioPath,
+                audioPathsJson = existing.audioPaths,
+                audioLabelsJson = existing.audioLabels,
+                imageUrl = image ?: existing.imageUrl,
+                partOfSpeech = partOfSpeech ?: existing.partOfSpeech,
+                ipa = existing.ipa,
+                sourceTitle = existing.sourceTitle,
+                chapterOrTag = infinitivo ?: existing.chapterOrTag,
+                exampleTranslation = exampleTranslation ?: existing.exampleTranslation,
+                isFavorite = existing.isFavorite,
+            )
+            return
+        }
+        ensureCanAddNewWord(word.word, enforceLimit = false)
+        collectionDao.insertCards(
+            listOf(
+                CardEntity(
+                    id = "sync-card-$normalized-${System.currentTimeMillis()}",
+                    collectionId = collectionId,
+                    pt = word.word.trim(),
+                    ru = word.translation.trim(),
+                    example = example,
+                    imageUrl = image,
+                    partOfSpeech = partOfSpeech,
+                    chapterOrTag = infinitivo,
+                    exampleTranslation = exampleTranslation,
+                    due = true,
+                    known = false,
+                ),
+            ),
+        )
     }
 
     private suspend fun addWordToCloudCollection(
         pt: String,
         ru: String,
         example: String?,
+        exampleTranslation: String? = null,
         tag: String,
         infinitivo: String,
     ) {
@@ -1282,7 +1572,7 @@ class ProfconqRepository(
                     ipa = existing.ipa,
                     sourceTitle = existing.sourceTitle,
                     chapterOrTag = infinitivo.takeIf { it.isNotBlank() } ?: existing.chapterOrTag,
-                    exampleTranslation = existing.exampleTranslation,
+                    exampleTranslation = exampleTranslation ?: existing.exampleTranslation,
                     isFavorite = existing.isFavorite,
                 )
                 return
@@ -1306,7 +1596,7 @@ class ProfconqRepository(
                 ipa = existing.ipa,
                 sourceTitle = existing.sourceTitle,
                 chapterOrTag = infinitivo.takeIf { it.isNotBlank() },
-                exampleTranslation = existing.exampleTranslation,
+                exampleTranslation = exampleTranslation ?: existing.exampleTranslation,
                 isFavorite = existing.isFavorite,
             )
             return
@@ -1324,6 +1614,7 @@ class ProfconqRepository(
                     known = false,
                     partOfSpeech = tag,
                     chapterOrTag = infinitivo.takeIf { it.isNotBlank() },
+                    exampleTranslation = exampleTranslation,
                 ),
             ),
         )
@@ -1335,7 +1626,7 @@ class ProfconqRepository(
     }
 
     private suspend fun ensureCloudSyncCollection(): String {
-        val id = "cloud-sync"
+        val id = CLOUD_SYNC_COLLECTION_ID
         val strings = uiStrings()
         if (collectionDao.getCollection(id) == null) {
             collectionDao.insertCollection(
@@ -1440,16 +1731,42 @@ class ProfconqRepository(
         val weeklyWritingGoal: Int?,
     )
 
-    private fun CardEntity.toWebVocabWord(collection: CollectionEntity, id: Int): WebVocabWord =
-        WebVocabWord(
+    /**
+     * Folder identity as profconq.com understands it. The website keys a word's folder solely on
+     * `videoId`, and this field only carries a value for video-derived collections — so syncing a
+     * manually created folder left every one of its words with no id, and the website filed them
+     * all into "Unnamed folder". The collection's own primary key is stable across renames, which
+     * makes it the id for everything that is not a video.
+     *
+     * `cloud-sync` is the app's catch-all for words that arrived with no folder of their own. It
+     * is not a folder, so it reports none instead of materialising a folder named "Sync" on the
+     * website.
+     */
+    private fun CollectionEntity.syncFolderId(): String? {
+        if (id == CLOUD_SYNC_COLLECTION_ID || sourceType == "sync") return null
+        return videoId?.trim()?.takeIf { it.isNotEmpty() } ?: id
+    }
+
+    private fun CardEntity.toWebVocabWord(collection: CollectionEntity, id: Int): WebVocabWord {
+        val folderId = collection.syncFolderId()
+        return WebVocabWord(
             id = id,
             word = pt,
             translation = ru,
             example = example.orEmpty(),
+            exampleRu = exampleTranslation.orEmpty(),
             tag = partOfSpeech.orEmpty().ifBlank { "geral" },
             infinitivo = chapterOrTag.orEmpty(),
             img = imageUrl.orEmpty().ifBlank { imagePath.orEmpty() },
-            videoId = collection.videoId,
-            videoTitle = collection.title,
+            videoId = folderId,
+            videoTitle = folderId?.let { collection.title },
+            learnMark = learnMark.orEmpty(),
         )
+    }
 }
+
+/** The app's catch-all collection for synced words that carry no folder of their own. */
+private const val CLOUD_SYNC_COLLECTION_ID = "cloud-sync"
+
+/** YouTube resource ids are 11 characters from this alphabet. */
+private val YOU_TUBE_VIDEO_ID_PATTERN = Regex("^[0-9A-Za-z_-]{11}$")

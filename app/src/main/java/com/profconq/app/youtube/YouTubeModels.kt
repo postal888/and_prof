@@ -25,6 +25,8 @@ data class YouTubeVideoResult(
     val duration: String?,
     val thumbnailUrl: String?,
     val isShort: Boolean = false,
+    val publishedAtMillis: Long? = null,
+    val publishedText: String? = null,
 )
 
 enum class VideoSearchFilter {
@@ -48,6 +50,7 @@ data class YouTubeWatchHistoryItem(
     val lastWatchedAt: Long,
     val lastPositionSec: Float,
     val watchCount: Int,
+    val publishedAtMillis: Long? = null,
 ) {
     fun toVideoResult(): YouTubeVideoResult = YouTubeVideoResult(
         videoId = videoId,
@@ -56,5 +59,6 @@ data class YouTubeWatchHistoryItem(
         duration = duration,
         thumbnailUrl = thumbnailUrl,
         isShort = isShort,
+        publishedAtMillis = publishedAtMillis,
     )
 }
