@@ -39,6 +39,8 @@ android {
 
     buildFeatures {
         compose = true
+        // BuildConfig.DEBUG нужен, чтобы аналитика решала debug/release без отдельного variant-кода.
+        buildConfig = true
     }
 }
 
@@ -68,6 +70,7 @@ dependencies {
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:12.1.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation(platform("com.google.firebase:firebase-bom:33.10.0"))
+    implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.android.gms:play-services-auth:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")

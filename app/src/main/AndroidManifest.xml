@@ -13,6 +13,16 @@
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.Profconq">
+
+        <!--
+            Сбор Firebase Analytics выключен на уровне конфига: FirebaseInitProvider отрабатывает
+            раньше Application.onCreate, поэтому одного рантайм-переключения в wrapper не хватило бы.
+            ProfconqAnalytics включает его вызовом setAnalyticsCollectionEnabled(true) в debug-сборке.
+        -->
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
