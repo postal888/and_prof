@@ -22,8 +22,8 @@ android {
         applicationId = "com.profconq.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.3"
+        versionCode = 7
+        versionName = "1.1.4"
     }
 
     signingConfigs {
@@ -113,6 +113,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.android.gms:play-services-auth:21.3.0")
+    implementation("com.android.billingclient:billing:9.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     implementation("com.github.NorthernCaptain:TAndroidLame:1.1") {
         exclude(group = "com.android.support")
