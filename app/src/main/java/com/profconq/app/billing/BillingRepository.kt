@@ -39,9 +39,6 @@ enum class BillingConnection {
     Failed,
 }
 
-/** A Play response that is not OK. Only the documented code travels: `debugMessage` never does. */
-class BillingPlayException(val code: Int) : Exception("Play billing response ($code)")
-
 /** One purchasable base plan, read entirely out of `ProductDetails`. */
 data class PlanOffer(
     val basePlanId: String,
@@ -50,6 +47,67 @@ data class PlanOffer(
     val offerToken: String,
 ) {
     override fun toString(): String = "PlanOffer($basePlanId, $title, $price)"
+}
+
+/** One offer that may be launched, with the `ProductDetails` Play answered for it. */
+class LaunchableOffer(val details: ProductDetails, val offer: PlanOffer) {
+    /** The token is Play data for the sheet only; it never appears in a rendered string. */
+    override fun toString(): String = "LaunchableOffer(${offer.basePlanId})"
+}
+
+/**
+ * Everything one `queryProductDetailsAsync` call said: the products, the products Play refused to
+ * return with the reason for each, and the offers a sheet may be opened for. `debugMessage` is
+ * Play's free text and is deliberately absent. The only tokens here live in [launchable], which is
+ * handed straight to `launchBillingFlow` and never reaches the UI state, a log or an exception.
+ */
+class ProductDetailsQueryResult(
+    val responseCode: Int,
+    /** Only the purchases-updated callback carries a sub code in Billing 9.1.0, so a query has none. */
+    val subResponseCode: Int?,
+    val reachedPlay: Boolean,
+    val productDetails: List<ProductDetails>,
+    val unfetched: List<UnfetchedProductInfo>,
+    val offersSeen: Int,
+    val basePlanIdsSeen: List<String>,
+    val launchable: List<LaunchableOffer>,
+) {
+    val productsReturned: Int get() = productDetails.size
+    val acceptedOffers: List<PlanOffer> get() = launchable.map { it.offer }
+
+    /** The same answer without any Play type, for the pure outcome decision and the diagnostics. */
+    val snapshot: PlayQuerySnapshot
+        get() = PlayQuerySnapshot(
+            responseCode = responseCode,
+            subResponseCode = subResponseCode,
+            reachedPlay = reachedPlay,
+            productsReturned = productsReturned,
+            unfetched = unfetched,
+            offersSeen = offersSeen,
+            basePlanIdsSeen = basePlanIdsSeen,
+            acceptedOffers = acceptedOffers.map { AcceptedOffer(it.basePlanId, it.title, it.price) },
+        )
+
+    fun launchableFor(basePlanId: String): LaunchableOffer? =
+        launchable.firstOrNull { it.offer.basePlanId == basePlanId }
+
+    override fun toString(): String =
+        "ProductDetailsQueryResult($responseCode, products=$productsReturned, " +
+            "unfetched=${unfetched.size}, offers=$offersSeen, accepted=${launchable.size})"
+
+    companion object {
+        /** The Play service never answered: no counts are claimed for a call that did not run. */
+        fun notReached(responseCode: Int) = ProductDetailsQueryResult(
+            responseCode = responseCode,
+            subResponseCode = null,
+            reachedPlay = false,
+            productDetails = emptyList(),
+            unfetched = emptyList(),
+            offersSeen = 0,
+            basePlanIdsSeen = emptyList(),
+            launchable = emptyList(),
+        )
+    }
 }
 
 /** The part of the Play side the verification pipeline needs, kept small enough to fake in tests. */
@@ -74,6 +132,18 @@ class BillingRepository(
     private val _connection = MutableStateFlow(BillingConnection.Disconnected)
     val connection: StateFlow<BillingConnection> = _connection.asStateFlow()
 
+    /**
+     * Fired when the Play service became usable again after having been lost. This is the event a
+     * plan list is rebuilt on: a reconnect used to re-read purchases only, so a catalogue that had
+     * come back empty stayed empty for the whole process.
+     */
+    private val _serviceReconnected = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val serviceReconnected: SharedFlow<Unit> = _serviceReconnected.asSharedFlow()
+
+    /** The documented code of the last setup attempt, kept so a failure can name its own reason. */
+    @Volatile
+    private var lastSetupCode = PlayResponseCode.SERVICE_DISCONNECTED
+
     /** Every purchase Play tells us about, from any source, without a local gate. */
     private val _purchases = MutableSharedFlow<ClientPurchase>(extraBufferCapacity = 64)
     override val purchases: SharedFlow<ClientPurchase> = _purchases.asSharedFlow()
@@ -92,13 +162,21 @@ class BillingRepository(
 
     override fun onBillingSetupFinished(result: BillingResult) {
         if (result.responseCode != BillingClient.BillingResponseCode.OK) {
+            lastSetupCode = result.responseCode
             _connection.value = BillingConnection.Failed
             return
         }
+        // The first successful setup is answered by the caller that waited for it, so only a
+        // connection that had been lost counts as a reconnect. Nothing is loaded from here
+        // directly: that would make the load's own connect() re-enter this callback.
+        val wasLost = _connection.value == BillingConnection.Disconnected ||
+            _connection.value == BillingConnection.Failed
+        lastSetupCode = BillingClient.BillingResponseCode.OK
         _connection.value = BillingConnection.Connected
         // Own the re-query here rather than in the UI: a purchase made outside this app (or a
         // suspended renewal) must reach the server even when Profile was never opened.
         scope.launch { refreshPurchases() }
+        if (wasLost) _serviceReconnected.tryEmit(Unit)
     }
 
     override fun onBillingServiceDisconnected() {
@@ -129,26 +207,29 @@ class BillingRepository(
     }
 
     fun connect() {
-        val state = client.connectionState
-        if (state == BillingClient.ConnectionState.CONNECTED ||
-            state == BillingClient.ConnectionState.CONNECTING
-        ) {
-            if (state == BillingClient.ConnectionState.CONNECTED) {
-                _connection.value = BillingConnection.Connected
-            }
+        if (client.isReady) {
+            _connection.value = BillingConnection.Connected
             return
         }
+        // A setup already in flight is left to the library: with auto service reconnection on,
+        // starting a second connection here would be a hand-rolled retry clock next to Play's own.
+        if (client.connectionState == BillingClient.ConnectionState.CONNECTING) return
         _connection.value = BillingConnection.Connecting
         client.startConnection(this)
     }
 
-    private suspend fun awaitConnected(): Boolean {
-        if (client.connectionState == BillingClient.ConnectionState.CONNECTED) return true
+    /**
+     * Null once Play answers ready, otherwise the documented code for why it did not. The `Failed`
+     * value of an earlier attempt says nothing about the connection being set up now, so only a
+     * real `Connected` settles this wait.
+     */
+    private suspend fun awaitReady(): Int? {
+        if (client.isReady) return null
         connect()
         val settled = withTimeoutOrNull(ConnectTimeoutMs) {
-            _connection.first { it == BillingConnection.Connected || it == BillingConnection.Failed }
+            _connection.first { it == BillingConnection.Connected }
         }
-        return settled == BillingConnection.Connected
+        return if (settled == BillingConnection.Connected) null else lastSetupCode
     }
 
     /**
@@ -156,23 +237,31 @@ class BillingRepository(
      * judge them; the client never reads access out of a purchase on its own.
      */
     override suspend fun refreshPurchases(): Boolean = withContext(Dispatchers.Main.immediate) {
-        if (!awaitConnected()) return@withContext false
+        if (awaitReady() != null) return@withContext false
         val params = QueryPurchasesParams.newBuilder()
             .setProductType(BillingClient.ProductType.SUBS)
             .includeSuspendedSubscriptions(true)
             .build()
         val response = suspendCancellableCoroutine { cont ->
-            client.queryPurchasesAsync(params) { result, list -> cont.resume(result to list) }
+            client.queryPurchasesAsync(params) { result, list ->
+                // A cancelled caller must not be revived by a late Play callback.
+                if (cont.isActive) cont.resume(result to list)
+            }
         }
         if (response.first.responseCode != BillingClient.BillingResponseCode.OK) return@withContext false
         response.second.forEach { forward(it) }
         true
     }
 
-    /** Product name and price come from this answer; the catalogue is never cached long-term. */
-    suspend fun fetchPremiumDetails(): List<ProductDetails> =
+    /**
+     * Play's catalogue for the premium product: the products it returned, the products it would
+     * not return with the reason for each, and the offers a sheet may be opened for. Nothing is
+     * cached here, so a plan list is only ever as fresh as the load that produced it.
+     */
+    suspend fun queryPremiumOffers(): ProductDetailsQueryResult =
         withContext(Dispatchers.Main.immediate) {
-            if (!awaitConnected()) throw BillingPlayException(PlayResponseCode.SERVICE_DISCONNECTED)
+            val notReady = awaitReady()
+            if (notReady != null) return@withContext ProductDetailsQueryResult.notReached(notReady)
             val params = QueryProductDetailsParams.newBuilder()
                 .setProductList(
                     listOf(
@@ -185,23 +274,39 @@ class BillingRepository(
                 .build()
             val response = suspendCancellableCoroutine { cont ->
                 client.queryProductDetailsAsync(params) { result, queryResult ->
-                    cont.resume(result to queryResult.productDetailsList)
+                    if (cont.isActive) cont.resume(result to queryResult)
                 }
             }
-            if (response.first.responseCode != BillingClient.BillingResponseCode.OK) {
-                throw BillingPlayException(response.first.responseCode)
+            val products = response.second.productDetailsList.orEmpty()
+                .filter { it.productId == BillingContract.PREMIUM_PRODUCT_ID }
+            val unfetched = response.second.unfetchedProductList.orEmpty().map { product ->
+                UnfetchedProductInfo(
+                    productId = product.productId,
+                    productType = product.productType,
+                    statusCode = product.statusCode,
+                )
             }
-            response.second.orEmpty().filter { it.productId == BillingContract.PREMIUM_PRODUCT_ID }
+            val rows = products.flatMap { offerRowsFor(it) }
+            val launchable = products.flatMap { details ->
+                offersFor(details).map { offer -> LaunchableOffer(details, offer) }
+            }
+            ProductDetailsQueryResult(
+                responseCode = response.first.responseCode,
+                // Deliberately null: `getOnPurchasesUpdatedSubResponseCode` belongs to the
+                // purchases-updated callback, and a product query has no sub code of its own.
+                subResponseCode = null,
+                reachedPlay = true,
+                productDetails = products,
+                unfetched = unfetched,
+                offersSeen = rows.size,
+                basePlanIdsSeen = rows.mapNotNull { it.basePlanId }.distinct(),
+                launchable = launchable,
+            )
         }
 
-    /**
-     * Base plans offered for purchase, in UI order: at most one row per `basePlanId`, always the
-     * standard record (no trial or promotional offer), never a row without a price or an offer
-     * token. The server catalogue is the allowlist that decides which of these may be launched.
-     */
-    fun offersFor(details: ProductDetails): List<PlanOffer> {
-        val title = details.name.nonBlank() ?: details.title.nonBlank()
-        val candidates = details.subscriptionOfferDetails.orEmpty().map { offer ->
+    /** Every offer row Play reported for one product, before any of the selection rules run. */
+    private fun offerRowsFor(details: ProductDetails): List<OfferCandidate> =
+        details.subscriptionOfferDetails.orEmpty().map { offer ->
             val phases = offer.pricingPhases?.pricingPhaseList.orEmpty()
             OfferCandidate(
                 basePlanId = offer.basePlanId,
@@ -211,7 +316,15 @@ class BillingRepository(
                 offerToken = offer.offerToken,
             )
         }
-        return selectStandardOffers(candidates).map { offer ->
+
+    /**
+     * Base plans offered for purchase, in UI order: at most one row per `basePlanId`, always the
+     * standard record (no trial or promotional offer), never a row without a price or an offer
+     * token. The server catalogue is the allowlist that decides which of these may be launched.
+     */
+    fun offersFor(details: ProductDetails): List<PlanOffer> {
+        val title = details.name.nonBlank() ?: details.title.nonBlank()
+        return selectStandardOffers(offerRowsFor(details)).map { offer ->
             PlanOffer(
                 basePlanId = offer.basePlanId,
                 title = title ?: offer.basePlanId,

@@ -153,14 +153,18 @@ class BillingModelsTest {
         assertEquals(64, digest.length)
         assertFalse(digest.contains(token))
         assertFalse(purchase.tokenDigest.contains(token))
-        // The play-sheet payload is a secret too, and it must not ride along in a log line either.
+        // The play-sheet payload is not merely hidden from a log line: a display row has no token
+        // property at all, so nothing in the UI could ever render, store or send one.
         val plan = PlanView(
             basePlanId = BillingContract.BASE_PLAN_MONTHLY,
             title = "Profconq Premium",
             price = "9,99 ₽",
-            offerToken = token,
         )
         assertFalse(plan.toString().contains(token))
+        assertFalse(
+            "the UI row model must hold no offer token",
+            PlanView::class.java.declaredFields.any { it.name.contains("Token", ignoreCase = true) },
+        )
         for (text in listOf(purchase.toString(), plan.toString(), digest)) {
             assertFalse("a raw secret leaked into $text", text.contains(token))
         }

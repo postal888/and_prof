@@ -4,29 +4,37 @@ import android.app.Activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.android.billingclient.api.ProductDetails
 import com.profconq.app.api.BillingApi
+import com.profconq.app.api.BillingApiException
 import com.profconq.app.billing.AccountToken
 import com.profconq.app.billing.BillingAccountCoordinator
 import com.profconq.app.billing.BillingConnection
-import com.profconq.app.billing.BillingContract
 import com.profconq.app.billing.BillingError
 import com.profconq.app.billing.BillingNotice
 import com.profconq.app.billing.BillingRepository
 import com.profconq.app.billing.BillingUiState
-import com.profconq.app.billing.FreshDetails
+import com.profconq.app.billing.BuyLock
 import com.profconq.app.billing.LaunchFollowUp
-import com.profconq.app.billing.PlanView
+import com.profconq.app.billing.PlansFailure
+import com.profconq.app.billing.PlansLoadGuard
+import com.profconq.app.billing.PlansOutcome
+import com.profconq.app.billing.PlayResponseCode
 import com.profconq.app.billing.PremiumSnapshot
 import com.profconq.app.billing.PremiumStatus
+import com.profconq.app.billing.ProductDetailsQueryResult
 import com.profconq.app.billing.PurchaseVerifier
+import com.profconq.app.billing.applyPlansOutcome
 import com.profconq.app.billing.billingNoticeOfResponseCode
+import com.profconq.app.billing.buyLockOf
 import com.profconq.app.billing.launchFollowUpOf
+import com.profconq.app.billing.runCatalogueLoad
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Profile's Premium section. Entitlement is read from the server snapshot only, and only while it
@@ -44,14 +52,16 @@ class BillingViewModel(
     val state: StateFlow<BillingUiState> = _state.asStateFlow()
 
     /**
-     * Play's answer from the refresh that ran immediately before it was needed. A failed or empty
-     * refresh clears it, so a stale `offerToken` is never replayed and prices cannot go stale
-     * underneath a purchase.
+     * The last allowlist the server confirmed. A failed read keeps it: "the read did not answer"
+     * is not the statement "this plan is not on the allowlist", and only an answer replaces it.
      */
-    private val details = FreshDetails<ProductDetails>()
-
-    /** Server allowlist from `GET /api/billing/products`; empty means nothing may be bought. */
     private var serverPlans: Set<String> = emptySet()
+
+    /** One full load at a time, only the newest may write, and a second request becomes one retry. */
+    private val plansGuard = PlansLoadGuard()
+
+    /** Play is asked by one caller at a time: a purchase re-read must not run beside a plans load. */
+    private val playMutex = Mutex()
 
     init {
         viewModelScope.launch {
@@ -72,17 +82,19 @@ class BillingViewModel(
                 if (connection == BillingConnection.Failed) markUnavailable()
             }
         }
-        refresh()
-    }
-
-    fun refresh() {
-        viewModelScope.launch { load() }
+        // The one event that turns an empty list back into plans: the Play service came back. The
+        // load it starts calls connect() on a ready client, so this cannot loop.
+        viewModelScope.launch {
+            billing.serviceReconnected.collect { requestPlansLoad() }
+        }
+        // No load here on purpose. The account-keyed trigger is the single initial one, so two
+        // loads never run for one account and compete for the same write.
     }
 
     /**
      * The account changed, from sign-in through sign-out to a direct switch. The state the previous
-     * account confirmed is dropped before anything is read for the new one, so a late answer of the
-     * old account has nothing to overwrite. Called for every `uid`, including the first frame.
+     * account confirmed is dropped before anything is read for the new one. Called for every `uid`,
+     * including the first frame, which makes it the one deterministic initial trigger.
      */
     fun onAccountChanged(uid: String?) {
         viewModelScope.launch {
@@ -101,8 +113,16 @@ class BillingViewModel(
                 applyOutcome(verifier.refreshStatus())
                 applyOutcome(verifier.restore())
             }
-            loadPlans(at)
+            requestPlansLoad()
         }
+    }
+
+    /**
+     * Reloads the whole catalogue: server allowlist, Play connection, product details, offer
+     * filter. Retry never stops at `/status` or at a purchases re-read.
+     */
+    fun retryPlans() {
+        requestPlansLoad()
     }
 
     fun selectPlan(basePlanId: String) {
@@ -114,36 +134,34 @@ class BillingViewModel(
     }
 
     /**
-     * Opens the Play sheet for the selected plan. Prices are re-read first, and the sheet only ever
-     * opens for a standard, priced offer the server allowlist confirmed.
+     * Opens the Play sheet. The details and the offer come from a read this press just made, so a
+     * sheet is never opened with a token the UI still happens to be showing. The same rule that
+     * decides whether the button is lit decides whether this press does anything.
      */
     fun purchase(activity: Activity) {
         val current = _state.value
-        if (current.busy) return
-        val basePlanId = current.selectedBasePlanId
-        if (!signedIn()) {
-            _state.update { it.copy(notice = BillingNotice.SignedOut) }
-            return
-        }
-        if (!serverPlans.contains(basePlanId)) {
-            _state.update { it.copy(notice = BillingNotice.BillingUnavailable) }
+        val lock = buyLockOf(current, signedIn())
+        if (lock != BuyLock.None) {
+            // A press of a live-looking button in a transient state is dropped, the way a second
+            // press while the sheet is opening always was; only a real block gets a notice.
+            val notice = noticeOfBuyLock(lock, current.plansFailure) ?: return
+            _state.update { it.copy(notice = notice) }
             return
         }
         viewModelScope.launch {
             _state.update { it.copy(busy = true, notice = null) }
             val at = accounts.current
-            val fresh = runCatching { billing.fetchPremiumDetails() }.getOrNull()
-            details.complete(fresh)
-            val product = details.all().firstOrNull { candidate ->
-                billing.offersFor(candidate).any { it.basePlanId == basePlanId }
-            }
-            val offer = product?.let { billing.offersFor(it).firstOrNull { o -> o.basePlanId == basePlanId } }
-            if (product == null || offer == null) {
-                // No standard, priced record for this plan right now: nothing is launched for it.
-                _state.update { it.copy(busy = false, notice = BillingNotice.PlanUnavailable) }
+            val basePlanId = current.selectedBasePlanId
+            val query = playMutex.withLock { billing.queryPremiumOffers() }
+            val launchable = query.launchableFor(basePlanId)
+                ?.takeIf { serverPlans.contains(basePlanId) && accounts.isCurrent(at) }
+            if (launchable == null) {
+                // Nothing fresh and allowlisted for this plan: the sheet stays closed, and the
+                // notice says which side of the read failed rather than that a button was missing.
+                _state.update { it.copy(busy = false, notice = purchaseBlockerNotice(query)) }
                 return@launch
             }
-            val code = billing.launchBillingFlow(activity, product, offer)
+            val code = billing.launchBillingFlow(activity, launchable.details, launchable.offer)
             when {
                 code == BillingRepository.BusyLaunchCode -> _state.update { it.copy(busy = false) }
                 else -> afterLaunch(launchFollowUpOf(code), code, at)
@@ -165,38 +183,65 @@ class BillingViewModel(
         _state.update { it.copy(busy = false, notice = BillingNotice.ActivityUnavailable) }
     }
 
-    private suspend fun load() {
-        billing.connect()
-        val at = verifier.currentAccount()
-        applyOutcome(verifier.refreshStatus())
-        loadPlans(at)
+    private fun requestPlansLoad() {
+        val id = plansGuard.begin() ?: return
+        viewModelScope.launch {
+            try {
+                runPlansLoad(id)
+            } finally {
+                // A request that arrived while this load ran is honoured by exactly one more run.
+                if (plansGuard.end()) requestPlansLoad()
+            }
+        }
     }
 
-    /** Play's rows come from a refresh that starts here: whatever it does not return is gone. */
-    private suspend fun loadPlans(at: AccountToken = accounts.current) {
-        serverPlans = runCatching { api.products() }
-            .getOrNull()
-            ?.premiumPlans
-            ?.map { it.basePlanId }
-            ?.toSet()
-            .orEmpty()
-        val fetched = runCatching { billing.fetchPremiumDetails() }.getOrNull()
-        details.complete(fetched)
-        val views = details.all()
-            .flatMap { billing.offersFor(it) }
-            .filter { serverPlans.contains(it.basePlanId) }
-            .map { PlanView(it.basePlanId, it.title, it.price, it.offerToken) }
-        if (!accounts.isCurrent(at)) return
+    private suspend fun runPlansLoad(id: Long) {
+        _state.update { it.copy(plansLoading = true) }
+        val at = accounts.current
+        val load = runCatalogueLoad(
+            lastServerPlans = serverPlans,
+            products = {
+                runCatching { api.products() }
+                    .map { catalogue -> catalogue.premiumPlans.map { plan -> plan.basePlanId }.toSet() }
+            },
+            errorOf = ::billingErrorOf,
+            play = { playMutex.withLock { billing.queryPremiumOffers().snapshot } },
+        )
+        // Only an answer replaces the allowlist; a load that failed keeps the last one that stood.
+        serverPlans = load.serverPlans
+        publishPlans(id, at, load.outcome)
+    }
+
+    private fun publishPlans(id: Long, at: AccountToken, outcome: PlansOutcome) {
         _state.update {
-            it.copy(
-                plans = views,
-                selectedBasePlanId = if (views.any { view -> view.basePlanId == it.selectedBasePlanId }) {
-                    it.selectedBasePlanId
-                } else {
-                    views.firstOrNull()?.basePlanId ?: BillingContract.BASE_PLAN_MONTHLY
-                },
+            applyPlansOutcome(
+                state = it,
+                outcome = outcome,
+                newest = plansGuard.isLatest(id),
+                accountCurrent = accounts.isCurrent(at),
             )
         }
+    }
+
+    private fun billingErrorOf(failure: Throwable): BillingError =
+        (failure as? BillingApiException)?.error ?: BillingError.Unknown
+
+    private fun noticeOfBuyLock(lock: BuyLock, failure: PlansFailure?): BillingNotice? = when (lock) {
+        BuyLock.SignedOut -> BillingNotice.SignedOut
+        BuyLock.NoFreshPlan -> failure?.let(::noticeOfPlansFailure) ?: BillingNotice.BillingUnavailable
+        BuyLock.None, BuyLock.Loading, BuyLock.Pressing, BuyLock.AlreadyActive -> null
+    }
+
+    private fun noticeOfPlansFailure(failure: PlansFailure): BillingNotice = when (failure) {
+        PlansFailure.BackendCatalogue -> BillingNotice.UpstreamUnavailable
+        PlansFailure.PlayConnection, PlansFailure.PlayQuery -> BillingNotice.BillingUnavailable
+        PlansFailure.Unfetched, PlansFailure.NoEligibleOffers, PlansFailure.FilteredOut ->
+            BillingNotice.PlanUnavailable
+    }
+
+    private fun purchaseBlockerNotice(query: ProductDetailsQueryResult): BillingNotice = when {
+        !query.reachedPlay || query.responseCode != PlayResponseCode.OK -> BillingNotice.BillingUnavailable
+        else -> BillingNotice.PlanUnavailable
     }
 
     private fun afterLaunch(followUp: LaunchFollowUp, code: Int, at: AccountToken) {

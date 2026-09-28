@@ -553,6 +553,7 @@ fun ProfconqApp(
                             onSelectPlan = billingViewModel::selectPlan,
                             onClearNotice = billingViewModel::clearNotice,
                             onPurchaseScreenGone = billingViewModel::onPurchaseScreenGone,
+                            onRetryPlans = billingViewModel::retryPlans,
                         )
                     },
                     modifier = Modifier.fillMaxSize(),

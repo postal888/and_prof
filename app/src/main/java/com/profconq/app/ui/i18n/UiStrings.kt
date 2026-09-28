@@ -3915,6 +3915,85 @@ class UiStrings(private val language: AppLanguage) {
             AppLanguage.PT -> "Nenhum plano disponível agora"
         }
 
+    val plansPlayUnavailable: String
+        get() = when (language) {
+            AppLanguage.RU -> "Google Play временно недоступен"
+            AppLanguage.EN -> "Google Play is temporarily unavailable"
+            AppLanguage.PT -> "O Google Play está temporariamente indisponível"
+        }
+
+    val plansCatalogueFailed: String
+        get() = when (language) {
+            AppLanguage.RU -> "Не удалось загрузить каталог подписок"
+            AppLanguage.EN -> "Could not load the subscription catalogue"
+            AppLanguage.PT -> "Não foi possível carregar o catálogo de assinaturas"
+        }
+
+    val plansNoEligibleOffers: String
+        get() = when (language) {
+            AppLanguage.RU -> "Для этого аккаунта нет доступных предложений"
+            AppLanguage.EN -> "This account has no offers available"
+            AppLanguage.PT -> "Esta conta não tem ofertas disponíveis"
+        }
+
+    val plansProductNotFound: String
+        get() = when (language) {
+            AppLanguage.RU -> "Товар подписки не найден в Google Play"
+            AppLanguage.EN -> "The subscription item was not found in Google Play"
+            AppLanguage.PT -> "O item de assinatura não foi encontrado no Google Play"
+        }
+
+    val plansLoadFailed: String
+        get() = when (language) {
+            AppLanguage.RU -> "Не удалось получить тарифы"
+            AppLanguage.EN -> "Could not load the plans"
+            AppLanguage.PT -> "Não foi possível carregar os planos"
+        }
+
+    val plansRetry: String
+        get() = when (language) {
+            AppLanguage.RU -> "Повторить загрузку"
+            AppLanguage.EN -> "Retry"
+            AppLanguage.PT -> "Tentar novamente"
+        }
+
+    /** The buy button waits while a load runs, so the wait itself has to be named. */
+    val plansLoadingWait: String
+        get() = when (language) {
+            AppLanguage.RU -> "Загружаем тарифы…"
+            AppLanguage.EN -> "Loading plans…"
+            AppLanguage.PT -> "Carregando os planos…"
+        }
+
+    /**
+     * The plain-language reason the plan list cannot be bought. Response and status codes stay out
+     * of this text; the compact diagnostic code is shown separately, and holds no personal data.
+     */
+    fun plansFailureText(
+        failure: com.profconq.app.billing.PlansFailure,
+        diagnostics: com.profconq.app.billing.PlansDiagnostics?,
+    ): String = when (failure) {
+        com.profconq.app.billing.PlansFailure.BackendCatalogue -> plansCatalogueFailed
+        com.profconq.app.billing.PlansFailure.PlayConnection -> plansPlayUnavailable
+        com.profconq.app.billing.PlansFailure.PlayQuery ->
+            when (diagnostics?.responseCode) {
+                com.profconq.app.billing.PlayResponseCode.SERVICE_UNAVAILABLE,
+                com.profconq.app.billing.PlayResponseCode.SERVICE_DISCONNECTED,
+                com.profconq.app.billing.PlayResponseCode.SERVICE_TIMEOUT,
+                com.profconq.app.billing.PlayResponseCode.NETWORK_ERROR,
+                -> plansPlayUnavailable
+                else -> plansLoadFailed
+            }
+        com.profconq.app.billing.PlansFailure.Unfetched ->
+            when (diagnostics?.unfetchedStatusCodes?.firstOrNull()) {
+                com.profconq.app.billing.UnfetchedStatusCode.ProductNotFound -> plansProductNotFound
+                com.profconq.app.billing.UnfetchedStatusCode.NoEligibleOffer -> plansNoEligibleOffers
+                else -> plansLoadFailed
+            }
+        com.profconq.app.billing.PlansFailure.NoEligibleOffers -> plansNoEligibleOffers
+        com.profconq.app.billing.PlansFailure.FilteredOut -> plansLoadFailed
+    }
+
     val premiumNoticeSignedOut: String
         get() = when (language) {
             AppLanguage.RU -> "Сначала войдите в аккаунт"

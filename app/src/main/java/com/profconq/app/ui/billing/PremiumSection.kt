@@ -29,9 +29,13 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.profconq.app.billing.BillingNotice
 import com.profconq.app.billing.BillingUiState
+import com.profconq.app.billing.BuyLock
 import com.profconq.app.billing.NoticeSeverity
 import com.profconq.app.billing.PlanView
+import com.profconq.app.billing.PlansDiagnostics
+import com.profconq.app.billing.PlansFailure
 import com.profconq.app.billing.PremiumStatus
+import com.profconq.app.billing.buyLockOf
 import com.profconq.app.billing.noticeSeverityOf
 import com.profconq.app.ui.components.GlassOutlineButton
 import com.profconq.app.ui.components.GradientPrimaryButton
@@ -69,11 +73,16 @@ fun PremiumSection(
     onSelectPlan: (String) -> Unit,
     onClearNotice: () -> Unit,
     onPurchaseScreenGone: () -> Unit,
+    onRetryPlans: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalUiStrings.current
     val activity = LocalContext.current as? Activity
-    val plansEnabled = !state.busy && state.status != PremiumStatus.Active
+    val plansEnabled = !state.busy && !state.plansLoading && state.status != PremiumStatus.Active
+    // One rule for the button and for the ViewModel's press: a sheet opens only from a list both
+    // the server and Play confirmed during this load.
+    val lock = buyLockOf(state, signedIn)
+    val canBuy = lock == BuyLock.None
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -127,8 +136,20 @@ fun PremiumSection(
                         onSelect = { onSelectPlan(plan.basePlanId) },
                     )
                 }
-            } else if (state.status == PremiumStatus.Free) {
+            } else if (state.plansFailure == null && !state.plansLoading && state.status == PremiumStatus.Free) {
                 MutedText(strings.premiumNoPlans)
+            }
+            // The reason is shown whether or not rows are still on screen: a button that only
+            // disappears tells the tester nothing about which side of the load failed.
+            state.plansFailure?.let { failure ->
+                MutedText(strings.plansFailureText(failure, state.plansDiagnostics))
+                state.plansDiagnostics?.let { MutedText(it.diagnosticCode(failure)) }
+            }
+            // A disabled button never reads as broken: the reason it waits is named above it.
+            when (lock) {
+                BuyLock.SignedOut -> MutedText(strings.premiumSignInFirst)
+                BuyLock.Loading -> MutedText(strings.plansLoadingWait)
+                else -> Unit
             }
             state.notice?.let { notice ->
                 Text(
@@ -146,17 +167,26 @@ fun PremiumSection(
                 // A sheet has to be owned by a live Activity: without one the button says so
                 // rather than doing nothing at all.
                 onClick = { activity?.let(onPurchase) ?: onPurchaseScreenGone() },
-                enabled = signedIn && plansEnabled && state.plans.isNotEmpty(),
+                enabled = canBuy,
                 loading = state.busy,
                 modifier = Modifier.fillMaxWidth(),
             )
+            // Visible whenever the list is empty or the last load did not fully succeed, so the
+            // user has a way back that is not "kill the app".
+            if (state.plans.isEmpty() || !state.plansFresh) {
+                GlassOutlineButton(
+                    text = strings.plansRetry,
+                    onClick = onRetryPlans,
+                    enabled = !state.plansLoading && !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             GlassOutlineButton(
                 text = strings.premiumRestore,
                 onClick = onRestore,
                 enabled = signedIn && !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (!signedIn) MutedText(strings.premiumSignInFirst)
         }
     }
 }
@@ -262,15 +292,25 @@ private fun PremiumPreview(
     annualPrice: String,
     fontScale: Float,
     widthDp: Float,
+    failure: PlansFailure? = null,
+    diagnostics: PlansDiagnostics? = null,
+    rowsKept: Boolean = false,
 ) {
     val density = LocalDensity.current
     val state = BillingUiState(
         status = status,
-        plans = listOf(
-            PlanView("monthly", "ProfConq Premium", monthlyPrice, "preview-monthly"),
-            PlanView("annual", "ProfConq Premium", annualPrice, "preview-annual"),
-        ),
+        plans = if (failure == null || rowsKept) {
+            listOf(
+                PlanView("monthly", "ProfConq Premium", monthlyPrice),
+                PlanView("annual", "ProfConq Premium", annualPrice),
+            )
+        } else {
+            emptyList()
+        },
         selectedBasePlanId = "monthly",
+        plansFresh = failure == null,
+        plansFailure = failure,
+        plansDiagnostics = diagnostics,
     )
     CompositionLocalProvider(
         LocalUiStrings provides UiStrings.forLanguage(language),
@@ -286,6 +326,7 @@ private fun PremiumPreview(
                     onSelectPlan = { },
                     onClearNotice = { },
                     onPurchaseScreenGone = { },
+                    onRetryPlans = { },
                 )
             }
         }
@@ -334,4 +375,54 @@ private fun PremiumPreviewEnActive() = PremiumPreview(
     annualPrice = "US$94.99",
     fontScale = 1f,
     widthDp = 320f,
+)
+
+/** The empty, blocked state: a reason, the compact code and a working Retry, at 320 dp. */
+@Preview(name = "PT 320dp load failure", showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun PremiumPreviewPtLoadFailure() = PremiumPreview(
+    language = AppLanguage.PT,
+    status = PremiumStatus.Free,
+    monthlyPrice = "10,99 €",
+    annualPrice = "94,99 €",
+    fontScale = 1f,
+    widthDp = 320f,
+    failure = PlansFailure.PlayQuery,
+    diagnostics = PlansDiagnostics(
+        responseCode = 2,
+        subResponseCode = null,
+        productsReturned = 0,
+        unfetchedStatusCodes = emptyList(),
+        offersSeen = 0,
+        basePlanIdsSeen = emptyList(),
+        acceptedOffers = 0,
+        serverPlanIds = listOf("monthly", "annual"),
+    ),
+)
+
+/**
+ * The outage state this screen exists for: the rows stay, buying is off, the reason and a Retry are
+ * both visible. Nothing here is Play data from a real device - the prices only stand in for shape.
+ */
+@Preview(name = "RU 320dp rows kept, buying off", showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun PremiumPreviewRuRowsKept() = PremiumPreview(
+    language = AppLanguage.RU,
+    status = PremiumStatus.Free,
+    monthlyPrice = "129 ₽",
+    annualPrice = "990 ₽",
+    fontScale = 1.3f,
+    widthDp = 320f,
+    failure = PlansFailure.PlayConnection,
+    diagnostics = PlansDiagnostics(
+        responseCode = -1,
+        subResponseCode = null,
+        productsReturned = 0,
+        unfetchedStatusCodes = emptyList(),
+        offersSeen = 0,
+        basePlanIdsSeen = emptyList(),
+        acceptedOffers = 0,
+        serverPlanIds = listOf("monthly", "annual"),
+    ),
+    rowsKept = true,
 )

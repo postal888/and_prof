@@ -180,20 +180,6 @@ class BillingRulesTest {
     }
 
     @Test
-    fun aFailedRefreshLeavesNothingToLaunchWith() {
-        val details = FreshDetails<String>()
-        details.complete(listOf("monthly-offer"))
-        assertEquals(listOf("monthly-offer"), details.all())
-
-        details.beginRefresh()
-        assertEquals("A refresh in flight must not be launchable", emptyList<String>(), details.all())
-        details.complete(null)
-        assertEquals("A failed refresh keeps no stale offer token", emptyList<String>(), details.all())
-        details.complete(emptyList())
-        assertEquals(emptyList<String>(), details.all())
-    }
-
-    @Test
     fun onlyTheStandardRecordOfABasePlanIsOffered() {
         val candidates = listOf(
             candidate(monthly, offerId = null, price = "129 ₽"),

@@ -2,7 +2,11 @@ package com.profconq.app.ui.i18n
 
 import com.profconq.app.billing.BillingContract
 import com.profconq.app.billing.BillingNotice
+import com.profconq.app.billing.PlayResponseCode
+import com.profconq.app.billing.PlansDiagnostics
+import com.profconq.app.billing.PlansFailure
 import com.profconq.app.billing.PremiumStatus
+import com.profconq.app.billing.UnfetchedStatusCode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -103,6 +107,76 @@ class PremiumStringsTest {
     }
 
     /**
+     * A plan list that cannot be bought has six different reasons, and the user reads one sentence
+     * about it. Each reason must resolve to its own text, and no response code may leak into it.
+     */
+    @Test
+    fun eachPlansFailureReadsAsItsOwnReasonInAllLanguages() {
+        for (language in languages) {
+            val strings = UiStrings.forLanguage(language)
+            assertEquals(strings.plansCatalogueFailed, strings.plansFailureText(PlansFailure.BackendCatalogue, null))
+            assertEquals(strings.plansPlayUnavailable, strings.plansFailureText(PlansFailure.PlayConnection, null))
+            // A Play service that is down reads the same way whether it never answered or answered
+            // "unavailable": the user can only wait for Play in both cases.
+            assertEquals(
+                strings.plansPlayUnavailable,
+                strings.plansFailureText(
+                    PlansFailure.PlayQuery,
+                    diagnostics(responseCode = PlayResponseCode.SERVICE_UNAVAILABLE),
+                ),
+            )
+            assertEquals(
+                strings.plansLoadFailed,
+                strings.plansFailureText(PlansFailure.PlayQuery, diagnostics(responseCode = PlayResponseCode.ERROR)),
+            )
+            assertEquals(
+                strings.plansProductNotFound,
+                strings.plansFailureText(PlansFailure.Unfetched, diagnostics(statusCode = UnfetchedStatusCode.ProductNotFound)),
+            )
+            assertEquals(
+                strings.plansNoEligibleOffers,
+                strings.plansFailureText(PlansFailure.Unfetched, diagnostics(statusCode = UnfetchedStatusCode.NoEligibleOffer)),
+            )
+            assertEquals(strings.plansNoEligibleOffers, strings.plansFailureText(PlansFailure.NoEligibleOffers, null))
+            assertEquals(strings.plansLoadFailed, strings.plansFailureText(PlansFailure.FilteredOut, null))
+
+            val texts = PlansFailure.values().map { strings.plansFailureText(it, null) } +
+                strings.plansLoadingWait + strings.plansRetry
+            for (text in texts) {
+                assertTrue("$language leaves a reason blank", text.isNotBlank())
+                assertFalse("$language leaks a code into \"$text\"", text.any { char -> char.isDigit() })
+            }
+        }
+    }
+
+    /** The wording the release asks for, verbatim, so a reword cannot slip through unnoticed. */
+    @Test
+    fun theRussianReasonsSayWhatTheyAreSpecifiedToSay() {
+        val ru = UiStrings.forLanguage(AppLanguage.RU)
+        assertEquals("Google Play временно недоступен", ru.plansPlayUnavailable)
+        assertEquals("Не удалось загрузить каталог подписок", ru.plansCatalogueFailed)
+        assertEquals("Для этого аккаунта нет доступных предложений", ru.plansNoEligibleOffers)
+        assertEquals("Товар подписки не найден в Google Play", ru.plansProductNotFound)
+        assertEquals("Не удалось получить тарифы", ru.plansLoadFailed)
+        assertEquals("Повторить загрузку", ru.plansRetry)
+    }
+
+    /** Retry is the only way back from a failed load, so its label must exist in every language. */
+    @Test
+    fun theRetryLabelIsTheShortButtonLabelEveryLanguageNeeds() {
+        assertEquals("Повторить загрузку", UiStrings.forLanguage(AppLanguage.RU).plansRetry)
+        assertEquals("Retry", UiStrings.forLanguage(AppLanguage.EN).plansRetry)
+        assertEquals("Tentar novamente", UiStrings.forLanguage(AppLanguage.PT).plansRetry)
+        for (language in languages) {
+            val strings = UiStrings.forLanguage(language)
+            assertTrue(strings.plansLoadingWait.isNotBlank())
+            assertNotEquals(strings.plansRetry, strings.plansLoadingWait)
+            // A button label must not turn into a sentence.
+            assertTrue("${language}overlong retry label", strings.plansRetry.length < 24)
+        }
+    }
+
+    /**
      * Play gives both base plans the same product title, so the localized period name is the only
      * thing that separates the two rows. Two ids reading alike would put the user one tap away
      * from buying the wrong cycle.
@@ -197,6 +271,13 @@ class PremiumStringsTest {
         strings.premiumSignInFirst,
         strings.premiumOpen,
         strings.premiumNoPlans,
+        strings.plansPlayUnavailable,
+        strings.plansCatalogueFailed,
+        strings.plansNoEligibleOffers,
+        strings.plansProductNotFound,
+        strings.plansLoadFailed,
+        strings.plansRetry,
+        strings.plansLoadingWait,
         strings.premiumNoticeSignedOut,
         strings.premiumNoticeCanceled,
         strings.premiumNoticeRestoring,
@@ -214,5 +295,21 @@ class PremiumStringsTest {
         strings.premiumNoticeNothingToRestore,
         strings.premiumNoticeGeneric,
     ) + PremiumStatus.values().map { strings.premiumStatusText(it) } +
-        BillingNotice.values().map { strings.premiumNoticeText(it) }
+        BillingNotice.values().map { strings.premiumNoticeText(it) } +
+        PlansFailure.values().map { strings.plansFailureText(it, null) }
+
+    /**
+     * A diagnostics stand-in with only documented codes in it, the way the real one arrives from a
+     * load. Prices, titles and tokens have no field to hide in.
+     */
+    private fun diagnostics(responseCode: Int? = null, statusCode: Int? = null) = PlansDiagnostics(
+        responseCode = responseCode,
+        subResponseCode = null,
+        productsReturned = 0,
+        unfetchedStatusCodes = listOfNotNull(statusCode),
+        offersSeen = 0,
+        basePlanIdsSeen = emptyList(),
+        acceptedOffers = 0,
+        serverPlanIds = listOf(BillingContract.BASE_PLAN_MONTHLY, BillingContract.BASE_PLAN_ANNUAL),
+    )
 }

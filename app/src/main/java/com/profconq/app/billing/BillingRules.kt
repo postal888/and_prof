@@ -207,26 +207,6 @@ class LaunchGate(
     }
 }
 
-/**
- * Product details may only be used to launch a flow while they come from the refresh that ran
- * immediately before the press. A failed or empty refresh therefore clears them: a stale
- * `offerToken` is never replayed.
- */
-class FreshDetails<T> {
-    private var current: List<T> = emptyList()
-
-    fun beginRefresh() {
-        current = emptyList()
-    }
-
-    /** Null means the refresh failed; an empty list means Play simply offered nothing. */
-    fun complete(value: List<T>?) {
-        current = value.orEmpty()
-    }
-
-    fun all(): List<T> = current
-}
-
 /** A `ProductDetails.SubscriptionOfferDetails` row reduced to the fields selection looks at. */
 data class OfferCandidate(
     val basePlanId: String?,

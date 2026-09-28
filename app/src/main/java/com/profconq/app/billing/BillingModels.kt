@@ -465,14 +465,16 @@ fun billingNoticeOfResponseCode(code: Int): BillingNotice = when (code) {
     else -> BillingNotice.Generic
 }
 
-/** A plan row in Profile. Name and price always come from `ProductDetails`, never from code. */
+/**
+ * A plan row in Profile. Name and price always come from `ProductDetails`, never from code. There
+ * is deliberately no offer token here: the UI state must not hold one, and a purchase always
+ * re-reads Play for the token it launches with.
+ */
 class PlanView(
     val basePlanId: String,
     val title: String,
     val price: String,
-    val offerToken: String,
 ) {
-    /** offerToken is Play data for the purchase flow only; it never reaches the server. */
     override fun toString(): String = "PlanView($basePlanId, $title, $price)"
 }
 
@@ -484,6 +486,18 @@ data class BillingUiState(
     val notice: BillingNotice? = null,
     val expiresAt: String? = null,
     val autoRenews: Boolean? = null,
+
+    /** A full catalogue load is running right now. */
+    val plansLoading: Boolean = false,
+
+    /** True only after a load in which both the server and Play answered. Buys need this. */
+    val plansFresh: Boolean = false,
+
+    /** Why the list cannot be bought, when that is the case. Never a raw Play or HTTP message. */
+    val plansFailure: PlansFailure? = null,
+
+    /** Safe counts and documented codes of the last load, for the compact code testers can read. */
+    val plansDiagnostics: PlansDiagnostics? = null,
 )
 
 enum class BillingError {
