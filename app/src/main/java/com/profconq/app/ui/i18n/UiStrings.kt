@@ -3803,6 +3803,54 @@ class UiStrings(private val language: AppLanguage) {
         AppLanguage.PT -> "Disponível até $value"
     }
 
+    val premiumPlanMonthly: String
+        get() = when (language) {
+            AppLanguage.RU -> "Ежемесячный"
+            AppLanguage.EN -> "Monthly"
+            AppLanguage.PT -> "Mensal"
+        }
+
+    val premiumPlanAnnual: String
+        get() = when (language) {
+            AppLanguage.RU -> "Годовой"
+            AppLanguage.EN -> "Annual"
+            AppLanguage.PT -> "Anual"
+        }
+
+    val premiumPeriodMonthly: String
+        get() = when (language) {
+            AppLanguage.RU -> "/ мес"
+            AppLanguage.EN -> "/ month"
+            AppLanguage.PT -> "/ mês"
+        }
+
+    val premiumPeriodAnnual: String
+        get() = when (language) {
+            AppLanguage.RU -> "/ год"
+            AppLanguage.EN -> "/ year"
+            AppLanguage.PT -> "/ ano"
+        }
+
+    /**
+     * Play reports one product title for both base plans, so the product name cannot tell the two
+     * rows apart — the period is the only thing the user is really choosing. An id outside the
+     * contract keeps the vendor title and gets no period, since we know nothing about its cycle.
+     */
+    private fun premiumPlanWords(basePlanId: String): Pair<String, String>? = when (basePlanId) {
+        com.profconq.app.billing.BillingContract.BASE_PLAN_MONTHLY -> premiumPlanMonthly to premiumPeriodMonthly
+        com.profconq.app.billing.BillingContract.BASE_PLAN_ANNUAL -> premiumPlanAnnual to premiumPeriodAnnual
+        else -> null
+    }
+
+    fun premiumPlanName(basePlanId: String, fallback: String): String =
+        premiumPlanWords(basePlanId)?.first ?: fallback
+
+    /** Google's formatted price is never rebuilt; only the localized period joins it. */
+    fun premiumPlanPriceLine(basePlanId: String, price: String): String {
+        val period = premiumPlanWords(basePlanId)?.second ?: return price
+        return "$price $period"
+    }
+
     val premiumAutoRenewsOn: String
         get() = when (language) {
             AppLanguage.RU -> "Продление включено"

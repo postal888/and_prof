@@ -1,5 +1,6 @@
 package com.profconq.app.ui.i18n
 
+import com.profconq.app.billing.BillingContract
 import com.profconq.app.billing.BillingNotice
 import com.profconq.app.billing.PremiumStatus
 import org.junit.Assert.assertEquals
@@ -16,6 +17,9 @@ import org.junit.Test
 class PremiumStringsTest {
 
     private val languages = listOf(AppLanguage.RU, AppLanguage.EN, AppLanguage.PT)
+
+    /** What Play reports as the product title — identical for both base plans, so never a label. */
+    private val vendorTitle = "ProfConq Premium"
 
     @Test
     fun everyPremiumStatusHasItsOwnTextInAllLanguages() {
@@ -98,8 +102,84 @@ class PremiumStringsTest {
         }
     }
 
+    /**
+     * Play gives both base plans the same product title, so the localized period name is the only
+     * thing that separates the two rows. Two ids reading alike would put the user one tap away
+     * from buying the wrong cycle.
+     */
+    @Test
+    fun eachKnownBasePlanGetsItsOwnPlanName() {
+        for (language in languages) {
+            val strings = UiStrings.forLanguage(language)
+            val names = BillingContract.knownBasePlans.map { id ->
+                val name = strings.premiumPlanName(id, vendorTitle)
+                assertTrue("$language/$id resolved to the vendor title", name != vendorTitle)
+                assertTrue("$language/$id is blank", name.isNotBlank())
+                name
+            }
+            assertEquals("$language reuses one plan name", names.size, names.distinct().size)
+        }
+    }
+
+    @Test
+    fun anUnknownBasePlanFallsBackToTheVendorTitle() {
+        for (language in languages) {
+            val strings = UiStrings.forLanguage(language)
+            assertEquals(vendorTitle, strings.premiumPlanName("weekly", vendorTitle))
+        }
+    }
+
+    /** The price is Google's string and must reach the row unchanged; only the period joins it. */
+    @Test
+    fun theFormattedPriceReachesTheRowUntouched() {
+        val price = "10,99 €"
+        for (language in languages) {
+            val strings = UiStrings.forLanguage(language)
+            for (id in BillingContract.knownBasePlans) {
+                val line = strings.premiumPlanPriceLine(id, price)
+                assertTrue("$language/$id rewrote the price: $line", line.startsWith(price))
+                assertTrue("$language/$id lost its period: $line", line.length > price.length)
+            }
+            // A cycle we know nothing about must not be given a period we cannot verify.
+            assertEquals(price, strings.premiumPlanPriceLine("weekly", price))
+        }
+    }
+
+    @Test
+    fun planPeriodsAreLocalizedAndDifferPerLanguage() {
+        val ru = UiStrings.forLanguage(AppLanguage.RU)
+        val en = UiStrings.forLanguage(AppLanguage.EN)
+        val pt = UiStrings.forLanguage(AppLanguage.PT)
+        for (strings in listOf(ru, en, pt)) {
+            assertNotEquals(strings.premiumPeriodMonthly, strings.premiumPeriodAnnual)
+        }
+        assertNotEquals(ru.premiumPeriodMonthly, en.premiumPeriodMonthly)
+        assertNotEquals(pt.premiumPeriodMonthly, en.premiumPeriodMonthly)
+        assertNotEquals(ru.premiumPlanMonthly, en.premiumPlanMonthly)
+        assertNotEquals(pt.premiumPlanAnnual, en.premiumPlanAnnual)
+    }
+
+    /** The row order the UI shows comes from the same rank the offer selector sorts by. */
+    @Test
+    fun monthlyRanksBeforeAnnualAndNothingElseRanks() {
+        assertTrue(BillingContract.planRank(BillingContract.BASE_PLAN_MONTHLY)!! <
+            BillingContract.planRank(BillingContract.BASE_PLAN_ANNUAL)!!)
+        assertEquals(null, BillingContract.planRank("weekly"))
+        for (language in languages) {
+            val strings = UiStrings.forLanguage(language)
+            // The labels cover exactly the contracted ids: a new base plan without a name would
+            // silently show the vendor title twice.
+            assertEquals(vendorTitle, strings.premiumPlanName("weekly", vendorTitle))
+            assertNotEquals(vendorTitle, strings.premiumPlanName(BillingContract.BASE_PLAN_ANNUAL, vendorTitle))
+        }
+    }
+
     private fun premiumTexts(strings: UiStrings): List<String> = listOf(
         strings.premiumSectionTitle,
+        strings.premiumPlanMonthly,
+        strings.premiumPlanAnnual,
+        strings.premiumPeriodMonthly,
+        strings.premiumPeriodAnnual,
         strings.premiumHint,
         strings.premiumStatusLoading,
         strings.premiumStatusActive,
