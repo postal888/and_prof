@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +35,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -148,6 +150,7 @@ fun ProfileScreen(
 ) {
     val strings = LocalUiStrings.current
     val appLanguage = AppLanguage.fromStorage(settings.uiLanguage)
+    var pendingSignOut by remember { mutableStateOf(false) }
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -232,11 +235,12 @@ fun ProfileScreen(
                         compact = true,
                     )
                 } else {
+                    // Signing out is asked for, never implied: the tap only opens the dialog.
                     GlassOutlineButton(
                         text = strings.profileSignOut,
-                        onClick = onSignOut,
+                        onClick = { pendingSignOut = true },
                         enabled = !authBusy,
-                        compact = true,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 authError?.let {
@@ -558,6 +562,30 @@ fun ProfileScreen(
         }
 
         item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+
+    if (pendingSignOut) {
+        AlertDialog(
+            onDismissRequest = { pendingSignOut = false },
+            title = { Text(strings.signOutDialogTitle, color = PpHeading) },
+            text = { Text(strings.signOutDialogBody, color = PpText) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingSignOut = false
+                        onSignOut()
+                    },
+                ) {
+                    Text(strings.profileSignOut, color = PpDanger)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingSignOut = false }) {
+                    Text(strings.cancel, color = PpTextMuted)
+                }
+            },
+            containerColor = PpSurface,
+        )
     }
 }
 

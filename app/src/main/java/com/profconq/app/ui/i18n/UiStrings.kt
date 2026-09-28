@@ -2165,9 +2165,24 @@ class UiStrings(private val language: AppLanguage) {
 
     val profileSignOut: String
         get() = when (language) {
-            AppLanguage.RU -> "Выйти"
+            AppLanguage.RU -> "Выйти из аккаунта"
             AppLanguage.EN -> "Sign out"
-            AppLanguage.PT -> "Sair"
+            AppLanguage.PT -> "Sair da conta"
+        }
+
+    /** Title and body read as one sentence: the account goes, the words on the device stay. */
+    val signOutDialogTitle: String
+        get() = when (language) {
+            AppLanguage.RU -> "Выйти из аккаунта?"
+            AppLanguage.EN -> "Sign out?"
+            AppLanguage.PT -> "Sair da conta?"
+        }
+
+    val signOutDialogBody: String
+        get() = when (language) {
+            AppLanguage.RU -> "Локальные данные останутся на устройстве."
+            AppLanguage.EN -> "Your local data stays on this device."
+            AppLanguage.PT -> "Os dados locais permanecem neste dispositivo."
         }
 
     val profileAuthLoading: String

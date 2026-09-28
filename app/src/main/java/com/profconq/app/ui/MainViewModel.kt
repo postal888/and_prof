@@ -311,14 +311,23 @@ class MainViewModel(
         viewModelScope.launch {
             _authBusy.value = true
             _authError.value = null
-            runCatching {
+            val remoteFailure = runCatching {
                 sessionAuth.logout()
                 authManager.signOut()
+            }.exceptionOrNull()
+            // Local teardown runs whatever the network said, and in its own steps: an account the
+            // site refused to release must never stay behind on the device.
+            authManager.setSiteUser(null)
+            _cloudAccount.value = null
+            _syncMessage.value = null
+            _wordLimitMessage.value = null
+            _promoMessage.value = null
+            runCatching {
                 // The entitlement mirror belongs to the sync coordinator, not to this screen.
                 dictionarySyncService.onSignedOut()
                 onSignOutCleanup()
             }
-                .onFailure { _authError.value = it.message ?: uiStrings().signOutFailed }
+            if (remoteFailure != null) _authError.value = uiStrings().signOutFailed
             _authBusy.value = false
         }
     }
