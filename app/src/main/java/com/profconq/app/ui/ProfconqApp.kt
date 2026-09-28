@@ -25,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.profconq.app.data.model.AppThemeMode
 import com.profconq.app.data.repository.ProfconqRepository
@@ -150,6 +151,24 @@ fun ProfconqApp(
             factory = YouTubeViewModelFactory(repository, authManager::getIdToken),
         )
         val youtubeState by youtubeViewModel.state.collectAsState()
+        // Created once for the whole screen so a purchase that arrives while another tab is open
+        // still reaches the verify pipeline.
+        val billingViewModel: com.profconq.app.ui.billing.BillingViewModel = viewModel(
+            factory = com.profconq.app.ui.billing.BillingViewModelFactory(
+                billing = app.billingRepository,
+                verifier = app.purchaseVerifier,
+                api = app.profconqBillingApi,
+                accounts = app.billingAccounts,
+                signedIn = { authManager.authUser.value != null },
+            ),
+        )
+        val billingState by billingViewModel.state.collectAsStateWithLifecycle()
+        val billingSignedIn = authUser != null
+        // Keyed on the account, not on a signed-in boolean: a direct switch from one account to
+        // another has to drop the previous one's entitlement before anything is read again.
+        androidx.compose.runtime.LaunchedEffect(authUser?.uid) {
+            billingViewModel.onAccountChanged(authUser?.uid)
+        }
         val studioNowPlaying by com.profconq.app.studio.StudioNowPlayingHub.state.collectAsState()
         val openStudioTab by com.profconq.app.studio.StudioNowPlayingHub.openStudio.collectAsState()
         val openVideoTab by com.profconq.app.youtube.YouTubeNowPlayingHub.openVideo.collectAsState()
@@ -465,6 +484,7 @@ fun ProfconqApp(
                     },
                     wordLimitMessage = wordLimitMessage,
                     onDismissWordLimitMessage = viewModel::clearWordLimitMessage,
+                    onOpenPremium = { activeTab = MainTab.Profile },
                     onSendToStudio = { ids ->
                         if (ids.isEmpty()) return@DictionaryScreen
                         studyScope.launch {
@@ -524,6 +544,17 @@ fun ProfconqApp(
                     onAdminSignIn = viewModel::signInAdmin,
                     onAdminSignOut = viewModel::signOutAdmin,
                     onClearAdminError = viewModel::clearAdminError,
+                    premiumSection = {
+                        com.profconq.app.ui.billing.PremiumSection(
+                            state = billingState,
+                            signedIn = billingSignedIn,
+                            onPurchase = billingViewModel::purchase,
+                            onRestore = billingViewModel::restore,
+                            onSelectPlan = billingViewModel::selectPlan,
+                            onClearNotice = billingViewModel::clearNotice,
+                            onPurchaseScreenGone = billingViewModel::onPurchaseScreenGone,
+                        )
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
                 }

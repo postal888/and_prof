@@ -185,6 +185,7 @@ fun DictionaryScreen(
     onSendToStudio: (List<String>) -> Unit = {},
     wordLimitMessage: String? = null,
     onDismissWordLimitMessage: () -> Unit = {},
+    onOpenPremium: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -407,14 +408,29 @@ fun DictionaryScreen(
 
         wordLimitMessage?.let { message ->
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                color = PpDanger,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onDismissWordLimitMessage() },
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = message,
+                    color = PpDanger,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onDismissWordLimitMessage() },
+                )
+                Text(
+                    text = strings.premiumOpen,
+                    color = PpAccent,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .clickable { onOpenPremium() },
+                )
+            }
         }
 
         if (selectionMode) {

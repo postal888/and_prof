@@ -50,10 +50,48 @@ class ProfconqApplication : Application() {
     }
 
     val dictionarySyncService: DictionarySyncService by lazy {
-        DictionarySyncService(repository, profconqApiClient)
+        DictionarySyncService(repository, profconqApiClient, billingAccounts)
     }
 
     val profconqAdminSession: ProfconqAdminSession by lazy { ProfconqAdminSession() }
+
+    /** Which account the entitlement state belongs to. In memory only, never a Play account id. */
+    val billingAccounts: com.profconq.app.billing.BillingAccountCoordinator by lazy {
+        com.profconq.app.billing.BillingAccountCoordinator()
+    }
+
+    /** Client-side cap on outbound `/verify` calls; the server rate-limits independently. */
+    val verifyThrottle: com.profconq.app.billing.VerifyThrottle by lazy {
+        com.profconq.app.billing.VerifyThrottle(
+            accounts = billingAccounts,
+            clock = { System.currentTimeMillis() },
+            delay = { millis -> kotlinx.coroutines.delay(millis) },
+        )
+    }
+
+    /** Billing singletons: one BillingClient and one verify pipeline for the whole process. */
+    val profconqBillingApi: com.profconq.app.api.BillingApi by lazy {
+        com.profconq.app.api.ProfconqBillingApi(
+            authTokenProvider = { forceRefresh -> authManager.getIdToken(forceRefresh) },
+            sessionAuth = profconqSessionAuth,
+        )
+    }
+
+    val billingRepository: com.profconq.app.billing.BillingRepository by lazy {
+        com.profconq.app.billing.BillingRepository(this, appScope)
+    }
+
+    val purchaseVerifier: com.profconq.app.billing.PurchaseVerifier by lazy {
+        com.profconq.app.billing.PurchaseVerifier(
+            feed = billingRepository,
+            api = profconqBillingApi,
+            sink = dictionarySyncService,
+            accounts = billingAccounts,
+            throttle = verifyThrottle,
+            isLoggedIn = { authManager.authUser.value != null },
+            scope = appScope,
+        )
+    }
 
     val studioStore: com.profconq.app.studio.StudioStore by lazy {
         com.profconq.app.studio.StudioStore(this)

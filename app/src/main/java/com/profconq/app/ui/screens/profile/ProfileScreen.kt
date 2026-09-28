@@ -143,6 +143,7 @@ fun ProfileScreen(
     onAdminSignIn: (String, String) -> Unit = { _, _ -> },
     onAdminSignOut: () -> Unit = {},
     onClearAdminError: () -> Unit = {},
+    premiumSection: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalUiStrings.current
@@ -345,6 +346,10 @@ fun ProfileScreen(
                 }
             }
         }
+        }
+
+        premiumSection?.let { slot ->
+            item { slot() }
         }
 
         item {

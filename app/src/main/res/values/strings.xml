@@ -1,5 +1,6 @@
 ﻿<resources>
-    <string name="app_name">Profconq</string>
+    <!-- The brand is the same word in every language the app ships in. -->
+    <string name="app_name" translatable="false">Profconq</string>
     <string name="studio_now_playing_channel">Studio</string>
     <string name="youtube_now_playing_channel">Video</string>
 </resources>

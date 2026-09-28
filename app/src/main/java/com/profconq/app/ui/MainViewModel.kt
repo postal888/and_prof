@@ -314,7 +314,8 @@ class MainViewModel(
             runCatching {
                 sessionAuth.logout()
                 authManager.signOut()
-                repository.resetAccountLimits()
+                // The entitlement mirror belongs to the sync coordinator, not to this screen.
+                dictionarySyncService.onSignedOut()
                 onSignOutCleanup()
             }
                 .onFailure { _authError.value = it.message ?: uiStrings().signOutFailed }

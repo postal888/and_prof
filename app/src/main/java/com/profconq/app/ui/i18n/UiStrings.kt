@@ -3727,6 +3727,275 @@ class UiStrings(private val language: AppLanguage) {
         else -> error.message?.takeIf { it.isNotBlank() } ?: fallback
     }
 
+    val premiumSectionTitle: String
+        get() = when (language) {
+            AppLanguage.RU -> "Premium"
+            AppLanguage.EN -> "Premium"
+            AppLanguage.PT -> "Premium"
+        }
+
+    val premiumHint: String
+        get() = when (language) {
+            AppLanguage.RU -> "Подписка снимает лимит слов в словаре."
+            AppLanguage.EN -> "The subscription lifts the dictionary word limit."
+            AppLanguage.PT -> "A assinatura remove o limite de palavras do dicionário."
+        }
+
+    val premiumStatusLoading: String
+        get() = when (language) {
+            AppLanguage.RU -> "Проверяем подписку…"
+            AppLanguage.EN -> "Checking subscription…"
+            AppLanguage.PT -> "Verificando assinatura…"
+        }
+
+    val premiumStatusActive: String
+        get() = when (language) {
+            AppLanguage.RU -> "Premium активен"
+            AppLanguage.EN -> "Premium is active"
+            AppLanguage.PT -> "Premium está ativo"
+        }
+
+    val premiumStatusStale: String
+        get() = when (language) {
+            AppLanguage.RU -> "Premium активен, сервер пока не подтвердил продление"
+            AppLanguage.EN -> "Premium is active, renewal not confirmed yet"
+            AppLanguage.PT -> "Premium está ativo, a renovação ainda não foi confirmada"
+        }
+
+    val premiumStatusPending: String
+        get() = when (language) {
+            AppLanguage.RU -> "Платёж обрабатывается"
+            AppLanguage.EN -> "Payment is pending"
+            AppLanguage.PT -> "O pagamento está pendente"
+        }
+
+    val premiumStatusVerifying: String
+        get() = when (language) {
+            AppLanguage.RU -> "Подтверждаем покупку"
+            AppLanguage.EN -> "Verifying purchase"
+            AppLanguage.PT -> "Confirmando a compra"
+        }
+
+    val premiumStatusFree: String
+        get() = when (language) {
+            AppLanguage.RU -> "Бесплатный план"
+            AppLanguage.EN -> "Free plan"
+            AppLanguage.PT -> "Plano gratuito"
+        }
+
+    val premiumStatusUnavailable: String
+        get() = when (language) {
+            AppLanguage.RU -> "Google Play недоступен"
+            AppLanguage.EN -> "Google Play is unavailable"
+            AppLanguage.PT -> "O Google Play está indisponível"
+        }
+
+    val premiumStatusRestoring: String
+        get() = when (language) {
+            AppLanguage.RU -> "Восстанавливаем подписку"
+            AppLanguage.EN -> "Restoring subscription"
+            AppLanguage.PT -> "Restaurando a assinatura"
+        }
+
+    fun premiumExpiresAt(value: String): String = when (language) {
+        AppLanguage.RU -> "Доступно до $value"
+        AppLanguage.EN -> "Available until $value"
+        AppLanguage.PT -> "Disponível até $value"
+    }
+
+    val premiumAutoRenewsOn: String
+        get() = when (language) {
+            AppLanguage.RU -> "Продление включено"
+            AppLanguage.EN -> "Auto-renewal on"
+            AppLanguage.PT -> "Renovação automática ativada"
+        }
+
+    val premiumAutoRenewsOff: String
+        get() = when (language) {
+            AppLanguage.RU -> "Продление выключено"
+            AppLanguage.EN -> "Auto-renewal off"
+            AppLanguage.PT -> "Renovação automática desativada"
+        }
+
+    val premiumBuy: String
+        get() = when (language) {
+            AppLanguage.RU -> "Купить"
+            AppLanguage.EN -> "Buy"
+            AppLanguage.PT -> "Comprar"
+        }
+
+    val premiumRestore: String
+        get() = when (language) {
+            AppLanguage.RU -> "Восстановить покупку"
+            AppLanguage.EN -> "Restore purchase"
+            AppLanguage.PT -> "Restaurar compra"
+        }
+
+    val premiumSignInFirst: String
+        get() = when (language) {
+            AppLanguage.RU -> "Войдите, чтобы купить Premium"
+            AppLanguage.EN -> "Sign in to buy Premium"
+            AppLanguage.PT -> "Entre para comprar o Premium"
+        }
+
+    val premiumOpen: String
+        get() = when (language) {
+            AppLanguage.RU -> "Открыть Premium"
+            AppLanguage.EN -> "Open Premium"
+            AppLanguage.PT -> "Abrir Premium"
+        }
+
+    val premiumNoPlans: String
+        get() = when (language) {
+            AppLanguage.RU -> "Платные планы сейчас недоступны"
+            AppLanguage.EN -> "No plans available right now"
+            AppLanguage.PT -> "Nenhum plano disponível agora"
+        }
+
+    val premiumNoticeSignedOut: String
+        get() = when (language) {
+            AppLanguage.RU -> "Сначала войдите в аккаунт"
+            AppLanguage.EN -> "Sign in first"
+            AppLanguage.PT -> "Entre na conta primeiro"
+        }
+
+    val premiumNoticeCanceled: String
+        get() = when (language) {
+            AppLanguage.RU -> "Покупка отменена"
+            AppLanguage.EN -> "Purchase cancelled"
+            AppLanguage.PT -> "Compra cancelada"
+        }
+
+    val premiumNoticeRestoring: String
+        get() = when (language) {
+            AppLanguage.RU -> "Подписка уже куплена, восстанавливаем доступ"
+            AppLanguage.EN -> "This subscription is already owned, restoring access"
+            AppLanguage.PT -> "Esta assinatura já foi comprada, recuperando o acesso"
+        }
+
+    val premiumNoticeBillingUnavailable: String
+        get() = when (language) {
+            AppLanguage.RU -> "Google Play не может предложить подписку"
+            AppLanguage.EN -> "Google Play cannot offer the subscription"
+            AppLanguage.PT -> "O Google Play não pode oferecer a assinatura"
+        }
+
+    val premiumNoticeInvalidRequest: String
+        get() = when (language) {
+            AppLanguage.RU -> "Сервер отклонил запрос покупки"
+            AppLanguage.EN -> "The server rejected the purchase request"
+            AppLanguage.PT -> "O servidor rejeitou o pedido de compra"
+        }
+
+    val premiumNoticeNetwork: String
+        get() = when (language) {
+            AppLanguage.RU -> "Нет связи с profconq.com"
+            AppLanguage.EN -> "Cannot reach profconq.com"
+            AppLanguage.PT -> "Não foi possível acessar profconq.com"
+        }
+
+    val premiumNoticeUnauthorized: String
+        get() = when (language) {
+            AppLanguage.RU -> "Сессия истекла, войдите заново"
+            AppLanguage.EN -> "Session expired, sign in again"
+            AppLanguage.PT -> "A sessão expirou, entre novamente"
+        }
+
+    val premiumNoticeOwnedByOther: String
+        get() = when (language) {
+            AppLanguage.RU -> "Подписка привязана к другому аккаунту"
+            AppLanguage.EN -> "This subscription belongs to another account"
+            AppLanguage.PT -> "Esta assinatura pertence a outra conta"
+        }
+
+    val premiumNoticeRateLimited: String
+        get() = when (language) {
+            AppLanguage.RU -> "Слишком много попыток, повторите позже"
+            AppLanguage.EN -> "Too many attempts, try again later"
+            AppLanguage.PT -> "Muitas tentativas, tente mais tarde"
+        }
+
+    val premiumNoticeUpstream: String
+        get() = when (language) {
+            AppLanguage.RU -> "Сервер пока не смог подтвердить покупку, Premium сохранён"
+            AppLanguage.EN -> "The server could not confirm the purchase yet, Premium is kept"
+            AppLanguage.PT -> "O servidor ainda não confirmou a compra, o Premium foi mantido"
+        }
+
+    val premiumNoticeServiceUnavailable: String
+        get() = when (language) {
+            AppLanguage.RU -> "Сервис временно недоступен"
+            AppLanguage.EN -> "Service temporarily unavailable"
+            AppLanguage.PT -> "Serviço temporariamente indisponível"
+        }
+
+    val premiumNoticeVerified: String
+        get() = when (language) {
+            AppLanguage.RU -> "Premium активирован"
+            AppLanguage.EN -> "Premium activated"
+            AppLanguage.PT -> "Premium ativado"
+        }
+
+    val premiumNoticeNothingToRestore: String
+        get() = when (language) {
+            AppLanguage.RU -> "Покупок не найдено"
+            AppLanguage.EN -> "No purchases found"
+            AppLanguage.PT -> "Nenhuma compra encontrada"
+        }
+
+    val premiumNoticeGeneric: String
+        get() = when (language) {
+            AppLanguage.RU -> "Не удалось завершить покупку"
+            AppLanguage.EN -> "The purchase could not be completed"
+            AppLanguage.PT -> "Não foi possível concluir a compra"
+        }
+
+    val premiumNoticePlanUnavailable: String
+        get() = when (language) {
+            AppLanguage.RU -> "План временно недоступен"
+            AppLanguage.EN -> "This plan is temporarily unavailable"
+            AppLanguage.PT -> "Este plano está temporariamente indisponível"
+        }
+
+    val premiumNoticeActivityUnavailable: String
+        get() = when (language) {
+            AppLanguage.RU -> "Не удалось открыть окно покупки"
+            AppLanguage.EN -> "The purchase window could not be opened"
+            AppLanguage.PT -> "Não foi possível abrir a janela de compra"
+        }
+
+    fun premiumStatusText(status: com.profconq.app.billing.PremiumStatus): String = when (status) {
+        com.profconq.app.billing.PremiumStatus.Loading -> premiumStatusLoading
+        com.profconq.app.billing.PremiumStatus.Unavailable -> premiumStatusUnavailable
+        com.profconq.app.billing.PremiumStatus.Free -> premiumStatusFree
+        com.profconq.app.billing.PremiumStatus.Active -> premiumStatusActive
+        com.profconq.app.billing.PremiumStatus.Pending -> premiumStatusPending
+        com.profconq.app.billing.PremiumStatus.Verifying -> premiumStatusVerifying
+        com.profconq.app.billing.PremiumStatus.Stale -> premiumStatusStale
+        com.profconq.app.billing.PremiumStatus.Restoring -> premiumStatusRestoring
+    }
+
+    fun premiumNoticeText(notice: com.profconq.app.billing.BillingNotice): String =
+        when (notice) {
+            com.profconq.app.billing.BillingNotice.SignedOut -> premiumNoticeSignedOut
+            com.profconq.app.billing.BillingNotice.Canceled -> premiumNoticeCanceled
+            com.profconq.app.billing.BillingNotice.Restoring -> premiumNoticeRestoring
+            com.profconq.app.billing.BillingNotice.BillingUnavailable -> premiumNoticeBillingUnavailable
+            com.profconq.app.billing.BillingNotice.InvalidRequest -> premiumNoticeInvalidRequest
+            com.profconq.app.billing.BillingNotice.Network -> premiumNoticeNetwork
+            com.profconq.app.billing.BillingNotice.Unauthorized -> premiumNoticeUnauthorized
+            com.profconq.app.billing.BillingNotice.OwnedByOther -> premiumNoticeOwnedByOther
+            com.profconq.app.billing.BillingNotice.RateLimited -> premiumNoticeRateLimited
+            com.profconq.app.billing.BillingNotice.UpstreamUnavailable -> premiumNoticeUpstream
+            com.profconq.app.billing.BillingNotice.ServiceUnavailable -> premiumNoticeServiceUnavailable
+            com.profconq.app.billing.BillingNotice.PendingVerification -> premiumNoticeUpstream
+            com.profconq.app.billing.BillingNotice.Verified -> premiumNoticeVerified
+            com.profconq.app.billing.BillingNotice.NothingToRestore -> premiumNoticeNothingToRestore
+            com.profconq.app.billing.BillingNotice.Generic -> premiumNoticeGeneric
+            com.profconq.app.billing.BillingNotice.PlanUnavailable -> premiumNoticePlanUnavailable
+            com.profconq.app.billing.BillingNotice.ActivityUnavailable -> premiumNoticeActivityUnavailable
+        }
+
     companion object {
         fun forLanguage(language: AppLanguage) = UiStrings(language)
     }

@@ -654,7 +654,7 @@ class StudioViewModel(
         clockHeld = true
         clockRunning = false
         cardFreezeAt = SystemClock.elapsedRealtime()
-            if (!keepQueue) {
+        if (!keepQueue) {
             tickJob?.cancel()
             tickJob = null
             cardClockStart = 0L
