@@ -288,19 +288,171 @@ enum class BuyLock {
     /** This account already holds the subscription: Restore, not a second sheet. */
     AlreadyActive,
 
+    /**
+     * The entitlement must be re-checked before anything can be bought: a purchase record the server
+     * still calls entitled stands beside an answer of no access. Restore is that re-check, so this
+     * is a wait for one answer rather than a statement that the plan is owned.
+     */
+    NeedsReverify,
+
+    /** The re-check itself failed for a temporary reason and its cooldown has not passed. */
+    ReverifyCooldown,
+
     /** The last full load did not leave a fresh, allowlisted plan to launch. */
     NoFreshPlan,
 }
 
 /**
- * The only rule for the buy button. Rows a temporary outage left standing stay on screen, but no
- * sheet opens from them until a load has been confirmed by both the server and Play.
+ * What the last trustworthy server answer says about the entitlement behind the buy button. The
+ * local mirror of an entitlement is never one of these states by itself: only an answer is, so a
+ * record whose term has run out cannot keep buying closed forever.
  */
-fun buyLockOf(state: BillingUiState, signedIn: Boolean): BuyLock = when {
+enum class EntitlementGate {
+    /** Nothing has been answered yet for this account, so no verdict of any kind is claimed. */
+    Unknown,
+
+    /** The server confirmed access: neither the owned plan nor any other is for sale here. */
+    Active,
+
+    /**
+     * The answer reads as no access while a record it reported still grants it. The two disagree,
+     * and an old record is not a verdict about the present: buying waits for one re-check.
+     */
+    NeedsReverify,
+
+    /** The server confirmed no access and nothing it reported grants any: buying is open again. */
+    FreeAuthoritative,
+
+    /** The re-check failed temporarily. Whatever was believed before it is still believed. */
+    ReverifyFailed,
+
+    /** No account: nothing can be bought, and no free entitlement is claimed either. */
+    SignedOut,
+}
+
+/**
+ * Server statuses that document access as still being granted. `pending`, `on_hold` and `paused`
+ * are deliberately absent: they grant nothing, so a free answer beside one of them is consistent
+ * rather than contradictory, and treating it as a contradiction would close buying on a state that
+ * no re-check could ever change.
+ */
+val accessGrantingStatuses: Set<String> = setOf("active", "canceled_but_active", "in_grace_period")
+
+/**
+ * The one reading of a `/status` answer for the buy button. A snapshot that did not name a plan is
+ * not an answer about access, and a failed read is reported as [EntitlementGate.Unknown] by the
+ * caller rather than as free: the difference is what keeps an outage from unlocking a purchase.
+ */
+fun entitlementGateOf(snapshot: PremiumSnapshot?, signedIn: Boolean): EntitlementGate = when {
+    !signedIn -> EntitlementGate.SignedOut
+    snapshot == null -> EntitlementGate.Unknown
+    snapshot.plan == ServerPlan.Unknown -> EntitlementGate.Unknown
+    // `stale` says Google could not be re-confirmed, not that access ended: it stays granted.
+    snapshot.isPremium -> EntitlementGate.Active
+    snapshot.entitlements.any { accessGrantingStatuses.contains(it.status) } -> EntitlementGate.NeedsReverify
+    else -> EntitlementGate.FreeAuthoritative
+}
+
+/** Errors that say "we could not tell" rather than "you have nothing". */
+fun isTransientBillingError(error: BillingError): Boolean = when (error) {
+    BillingError.Network,
+    BillingError.RateLimited,
+    BillingError.UpstreamUnavailable,
+    BillingError.ServiceUnavailable,
+    BillingError.Unauthorized,
+    BillingError.Unknown,
+    -> true
+
+    BillingError.None,
+    BillingError.InvalidRequest,
+    BillingError.ProductNotAllowed,
+    BillingError.OwnedByOtherAccount,
+    -> false
+}
+
+/**
+ * The buy gate of one screen: the entitlement the last answer supported, and the cooldown of a
+ * re-check that failed. A temporary failure never becomes a free verdict, and while its cooldown
+ * runs no further re-check is asked for. When the cooldown passes the state returns to
+ * [EntitlementGate.NeedsReverify] — the re-check is still owed — and only an answer settles it.
+ */
+class BuyGate(
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val cooldownMs: Long = BuyGate.CooldownMs,
+) {
+    companion object {
+        /** As long as the server's own per-account verify window, and no longer. */
+        const val CooldownMs = 60_000L
+    }
+
+    private var gate = EntitlementGate.Unknown
+    private var blockedUntil = 0L
+
+    /** The gate as it stands now, with a cooldown that has run out folded back into the state. */
+    @Synchronized
+    fun current(): EntitlementGate {
+        if (gate == EntitlementGate.ReverifyFailed && clock() >= blockedUntil) gate = EntitlementGate.NeedsReverify
+        return gate
+    }
+
+    /** Whether an explicit re-check may be asked for right now, cooldown included. */
+    fun restoreAllowed(): Boolean = current() != EntitlementGate.ReverifyFailed
+
+    /** Takes the verdict of an answer in. A read that did not answer changes nothing. */
+    @Synchronized
+    fun onSnapshot(snapshot: PremiumSnapshot?, signedIn: Boolean): EntitlementGate {
+        val next = entitlementGateOf(snapshot, signedIn)
+        if (next == EntitlementGate.Unknown && gate != EntitlementGate.Unknown) return gate
+        // An answer settles the question the cooldown was waiting on, either way it goes.
+        if (next == EntitlementGate.FreeAuthoritative || next == EntitlementGate.Active) blockedUntil = 0L
+        gate = next
+        return gate
+    }
+
+    /** A failed re-check: only a temporary one is remembered, and never as free access. */
+    @Synchronized
+    fun onReverifyFailure(error: BillingError, signedIn: Boolean): EntitlementGate {
+        if (!signedIn) {
+            gate = EntitlementGate.SignedOut
+            blockedUntil = 0L
+            return gate
+        }
+        // Only an owed re-check can fail at it. Anywhere else a read that did not answer is not a
+        // verdict, and putting a cooldown on a state that never existed would close buying without
+        // anything on the other side to reopen it.
+        if (gate != EntitlementGate.NeedsReverify) return gate
+        if (!isTransientBillingError(error)) return gate
+        blockedUntil = clock() + cooldownMs
+        gate = EntitlementGate.ReverifyFailed
+        return gate
+    }
+
+    /** Nothing from the account that left may stand behind this one, cooldown included. */
+    @Synchronized
+    fun onAccountChanged(signedIn: Boolean): EntitlementGate {
+        gate = if (signedIn) EntitlementGate.Unknown else EntitlementGate.SignedOut
+        blockedUntil = 0L
+        return gate
+    }
+}
+
+/**
+ * The only rule for the buy button. Rows a temporary outage left standing stay on screen, but no
+ * sheet opens from them until a load has been confirmed by both the server and Play. [gate] comes
+ * from the entitlement the last answer supported; a caller that has not published one gets the
+ * states an answer cannot rule out.
+ */
+fun buyLockOf(
+    state: BillingUiState,
+    signedIn: Boolean,
+    gate: EntitlementGate = state.entitlementGate,
+): BuyLock = when {
     !signedIn -> BuyLock.SignedOut
     state.plansLoading -> BuyLock.Loading
     state.busy -> BuyLock.Pressing
-    state.status == PremiumStatus.Active -> BuyLock.AlreadyActive
+    state.status == PremiumStatus.Active || gate == EntitlementGate.Active -> BuyLock.AlreadyActive
+    gate == EntitlementGate.NeedsReverify -> BuyLock.NeedsReverify
+    gate == EntitlementGate.ReverifyFailed -> BuyLock.ReverifyCooldown
     !state.plansFresh || state.plans.none { it.basePlanId == state.selectedBasePlanId } -> BuyLock.NoFreshPlan
     else -> BuyLock.None
 }

@@ -20,6 +20,62 @@ data class VocabularyPushResult(
     val wordLimit: Int = WordLimitPolicy.FREE_LIMIT,
 )
 
+/**
+ * How a `/api/auth/me` read ended, kept apart from anything it said. "The server named this account
+ * as free" and "the server did not answer" are different statements, and only the first of them may
+ * change what the profile shows: reading a refusal as a free account is what took a premium user's
+ * word limit down to 10 while their purchase was still standing.
+ */
+enum class MeRead {
+    /** 2xx with an account in it. */
+    Answered,
+
+    /** 401 or 403: the request carried no valid session. */
+    Rejected,
+
+    /** Anything else, including a call that never reached the server. */
+    Unreachable,
+}
+
+/** Plain Kotlin on purpose, so the three endings are distinguishable in a test without a device. */
+fun meReadOf(code: Int): MeRead = when (code) {
+    in 200..299 -> MeRead.Answered
+    401, 403 -> MeRead.Rejected
+    else -> MeRead.Unreachable
+}
+
+/** The `/me` fields this client reads, with every JSON type already taken out. */
+data class MeFields(
+    val email: String?,
+    val plan: String?,
+    val wordCount: Int?,
+    val wordLimit: Int?,
+)
+
+/** One read of the account: how it ended, the status it ended with, and what it said if it answered. */
+data class MeOutcome(val read: MeRead, val code: Int, val fields: MeFields?)
+
+/**
+ * The profile an answered `/me` described. The server sends JSON null for a premium account's limit,
+ * which is its way of saying "no limit" rather than "no value", so it becomes the unlimited one here
+ * and never the free one.
+ */
+fun accountOf(fields: MeFields, uid: String, email: String?, displayName: String?): AccountInfo {
+    val isPremium = fields.plan == "premium"
+    return AccountInfo(
+        uid = uid,
+        email = email ?: fields.email,
+        displayName = displayName,
+        isPremium = isPremium,
+        wordCount = fields.wordCount ?: 0,
+        wordLimit = when {
+            isPremium -> WordLimitPolicy.UNLIMITED
+            fields.wordLimit == null -> WordLimitPolicy.FREE_LIMIT
+            else -> fields.wordLimit
+        },
+    )
+}
+
 class ProfconqApiClient(
     private val authTokenProvider: suspend (forceRefresh: Boolean) -> String?,
     private val sessionAuth: ProfconqSessionAuth? = null,
@@ -191,21 +247,21 @@ class ProfconqApiClient(
         }
     }
 
+    /**
+     * The cloud profile, from `/api/auth/me` alone. A read that was refused or never answered throws
+     * instead of coming back as a free account: the caller has nothing better to do with that than to
+     * keep the profile it last had.
+     */
     suspend fun fetchAccount(uid: String, email: String?, displayName: String?): AccountInfo =
         withContext(Dispatchers.IO) {
-            val meUser = fetchMeUser()
-            val words = runCatching { pullVocabulary() }.getOrElse { emptyList() }
-            val isPremium = meUser?.optString("plan") == "premium"
-            val wordLimit = parseWordLimit(meUser, isPremium)
-            val wordCount = meUser?.optInt("wordCount")?.takeIf { it >= 0 } ?: words.size
-            AccountInfo(
-                uid = uid,
-                email = email ?: meUser?.optString("email"),
-                displayName = displayName,
-                isPremium = isPremium,
-                wordCount = wordCount,
-                wordLimit = wordLimit,
-            )
+            val outcome = fetchMe()
+            val fields = outcome.fields
+            when {
+                outcome.read == MeRead.Answered && fields != null ->
+                    accountOf(fields, uid, email, displayName)
+                outcome.read == MeRead.Rejected -> throw ProfconqApiException.Unauthorized()
+                else -> throw ProfconqApiException.HttpError(outcome.code, null)
+            }
         }
 
     suspend fun redeemPromoCode(code: String): AccountInfo = withContext(Dispatchers.IO) {
@@ -220,27 +276,55 @@ class ProfconqApiClient(
         }
     }
 
-    private suspend fun fetchMeUser(): JSONObject? {
-        fetchMeWithBearer().getOrNull()?.let { return it }
-        if (sessionAuth != null && sessionAuth.establishWebSession()) {
-            return fetchMeWithCookies().getOrNull()
-        }
-        return null
+    /**
+     * One read of the account, in at most two requests. A bearer that was refused says the web
+     * session is missing, and only then is one established and the account read over the cookies.
+     * A server that did not answer is returned exactly as it is: starting a session behind one adds
+     * requests that cannot say anything new, which is how one expired session became a storm.
+     *
+     * The bearer token is never force-refreshed here. A fresh token changes nothing about what the
+     * account is entitled to, and that refresh was the second of the four calls.
+     */
+    private suspend fun fetchMe(): MeOutcome = withContext(Dispatchers.IO) {
+        val bearer = meWithBearer()
+        if (bearer.read != MeRead.Rejected) return@withContext bearer
+        val session = sessionAuth ?: return@withContext bearer
+        if (!session.establishWebSession()) return@withContext bearer
+        meWithCookies()
     }
 
-    private suspend fun fetchMeWithBearer(): Result<JSONObject?> = runCatching {
-        val (code, body) = authorizedBearerRequest("GET", "/api/auth/me", null)
-        if (code == 401) return@runCatching null
-        if (code !in 200..299) return@runCatching null
-        JSONObject(body).optJSONObject("user")
+    private suspend fun meWithBearer(): MeOutcome = try {
+        val token = authTokenProvider(false) ?: return MeOutcome(MeRead.Rejected, 401, null)
+        val (code, body) = execute(bearerClient, "/api/auth/me", "GET", null, token)
+        meOutcomeOf(code, body)
+    } catch (failure: Exception) {
+        MeOutcome(MeRead.Unreachable, 0, null)
     }
 
-    private suspend fun fetchMeWithCookies(): Result<JSONObject?> = runCatching {
-        val client = sessionAuth?.cookieClient ?: error("No cookie client")
+    private suspend fun meWithCookies(): MeOutcome = try {
+        val client = sessionAuth?.cookieClient ?: return MeOutcome(MeRead.Rejected, 401, null)
         val (code, body) = execute(client, "GET", "/api/auth/me", null, useBearer = false)
-        if (code == 401) return@runCatching null
-        if (code !in 200..299) return@runCatching null
-        JSONObject(body).optJSONObject("user")
+        meOutcomeOf(code, body)
+    } catch (failure: Exception) {
+        MeOutcome(MeRead.Unreachable, 0, null)
+    }
+
+    /** A 2xx with no account in it is not an answer about the account either. */
+    private fun meOutcomeOf(code: Int, body: String): MeOutcome {
+        val read = meReadOf(code)
+        if (read != MeRead.Answered) return MeOutcome(read, code, null)
+        val user = runCatching { JSONObject(body).optJSONObject("user") }.getOrNull()
+            ?: return MeOutcome(MeRead.Unreachable, code, null)
+        return MeOutcome(
+            read = MeRead.Answered,
+            code = code,
+            fields = MeFields(
+                email = user.optString("email").takeIf { it.isNotBlank() },
+                plan = user.optString("plan").takeIf { it.isNotBlank() },
+                wordCount = if (user.has("wordCount") && !user.isNull("wordCount")) user.optInt("wordCount") else null,
+                wordLimit = if (user.has("wordLimit") && !user.isNull("wordLimit")) user.optInt("wordLimit") else null,
+            ),
+        )
     }
 
     private suspend fun redeemWithBearer(payload: String): Result<AccountInfo> = runCatching {

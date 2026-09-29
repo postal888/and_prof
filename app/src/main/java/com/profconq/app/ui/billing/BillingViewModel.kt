@@ -13,6 +13,7 @@ import com.profconq.app.billing.BillingError
 import com.profconq.app.billing.BillingNotice
 import com.profconq.app.billing.BillingRepository
 import com.profconq.app.billing.BillingUiState
+import com.profconq.app.billing.BuyGate
 import com.profconq.app.billing.BuyLock
 import com.profconq.app.billing.LaunchFollowUp
 import com.profconq.app.billing.PlansFailure
@@ -60,6 +61,13 @@ class BillingViewModel(
     /** One full load at a time, only the newest may write, and a second request becomes one retry. */
     private val plansGuard = PlansLoadGuard()
 
+    /**
+     * The entitlement the last server answer supported. A record the server still calls entitled
+     * beside an answer of no access waits for one re-check instead of opening a second sheet, and a
+     * re-check that failed for a temporary reason keeps the verdict it had before it.
+     */
+    private val buyGate = BuyGate()
+
     /** Play is asked by one caller at a time: a purchase re-read must not run beside a plans load. */
     private val playMutex = Mutex()
 
@@ -100,6 +108,7 @@ class BillingViewModel(
         viewModelScope.launch {
             val at = verifier.onAccountChanged(uid)
             val signed = uid != null
+            val gate = buyGate.onAccountChanged(signed)
             _state.update {
                 it.copy(
                     status = if (signed) PremiumStatus.Loading else PremiumStatus.Free,
@@ -107,6 +116,7 @@ class BillingViewModel(
                     busy = false,
                     expiresAt = null,
                     autoRenews = null,
+                    entitlementGate = gate,
                 )
             }
             if (signed) {
@@ -140,7 +150,7 @@ class BillingViewModel(
      */
     fun purchase(activity: Activity) {
         val current = _state.value
-        val lock = buyLockOf(current, signedIn())
+        val lock = buyLockOf(current, signedIn(), buyGate.current())
         if (lock != BuyLock.None) {
             // A press of a live-looking button in a transient state is dropped, the way a second
             // press while the sheet is opening always was; only a real block gets a notice.
@@ -171,6 +181,14 @@ class BillingViewModel(
 
     fun restore() {
         viewModelScope.launch {
+            if (!buyGate.restoreAllowed()) {
+                // The re-check waits out its cooldown: neither Play nor the server is asked again,
+                // and the press is answered instead of silently doing nothing.
+                _state.update {
+                    it.copy(notice = BillingNotice.RateLimited, entitlementGate = buyGate.current())
+                }
+                return@launch
+            }
             _state.update { it.copy(busy = true, notice = null) }
             val failed = verifier.restore()
             if (failed == null) applyOutcome(verifier.refreshStatus())
@@ -228,6 +246,10 @@ class BillingViewModel(
 
     private fun noticeOfBuyLock(lock: BuyLock, failure: PlansFailure?): BillingNotice? = when (lock) {
         BuyLock.SignedOut -> BillingNotice.SignedOut
+        // A press while a record that still reads as owned waits to be re-checked says what is owed,
+        // and the Restore button below is the press that pays for it.
+        BuyLock.NeedsReverify -> BillingNotice.Restoring
+        BuyLock.ReverifyCooldown -> BillingNotice.RateLimited
         BuyLock.NoFreshPlan -> failure?.let(::noticeOfPlansFailure) ?: BillingNotice.BillingUnavailable
         BuyLock.None, BuyLock.Loading, BuyLock.Pressing, BuyLock.AlreadyActive -> null
     }
@@ -259,6 +281,16 @@ class BillingViewModel(
 
     private fun restoreOwned() {
         viewModelScope.launch {
+            if (!buyGate.restoreAllowed()) {
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        notice = BillingNotice.RateLimited,
+                        entitlementGate = buyGate.current(),
+                    )
+                }
+                return@launch
+            }
             _state.update {
                 it.copy(busy = false, status = PremiumStatus.Restoring, notice = BillingNotice.Restoring)
             }
@@ -273,18 +305,30 @@ class BillingViewModel(
         if (!accounts.isCurrent(current.at)) return
         when (current) {
             is PurchaseVerifier.Outcome.Applied -> applySnapshot(current.snapshot)
-            is PurchaseVerifier.Outcome.Failed -> _state.update { it.copy(notice = noticeOfError(current.error)) }
+            is PurchaseVerifier.Outcome.Failed -> {
+                // A read that failed is not a verdict about access: it can only put an owed re-check
+                // behind a cooldown, and never unlock a purchase.
+                buyGate.onReverifyFailure(current.error, signedIn())
+                _state.update {
+                    it.copy(notice = noticeOfError(current.error), entitlementGate = buyGate.current())
+                }
+            }
             is PurchaseVerifier.Outcome.Pending -> _state.update { it.copy(status = PremiumStatus.Pending) }
-            is PurchaseVerifier.Outcome.SignedOut -> _state.update {
-                it.copy(notice = BillingNotice.SignedOut)
+            is PurchaseVerifier.Outcome.SignedOut -> {
+                buyGate.onSnapshot(null, signedIn())
+                _state.update {
+                    it.copy(notice = BillingNotice.SignedOut, entitlementGate = buyGate.current())
+                }
             }
         }
     }
 
     private fun applySnapshot(snapshot: PremiumSnapshot) {
+        val gate = buyGate.onSnapshot(snapshot, signedIn())
         _state.update {
             it.copy(
                 status = statusOf(snapshot),
+                entitlementGate = gate,
                 notice = if (snapshot.isPremium && it.status != PremiumStatus.Active) {
                     BillingNotice.Verified
                 } else {

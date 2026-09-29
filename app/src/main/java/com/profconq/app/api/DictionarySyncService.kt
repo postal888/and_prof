@@ -16,6 +16,40 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
+ * The profile line as the entitlement this device applied says it. `/me` can name a plan that the
+ * billing answer has since replaced, so the counts come from the read while the plan and its limit
+ * come from what is actually applied: a free read never walks a confirmed Premium back down to the
+ * free limit, and a Premium that was applied has no limit to show.
+ */
+fun profileOf(appliedPremium: Boolean, account: AccountInfo): AccountInfo = when {
+    appliedPremium -> account.copy(isPremium = true, wordLimit = WordLimitPolicy.UNLIMITED)
+    account.isPremium -> account.copy(isPremium = false, wordLimit = WordLimitPolicy.FREE_LIMIT)
+    else -> account
+}
+
+/**
+ * One account read at a time. A screen that asks again while one is running is served by the read in
+ * flight instead of starting a second one beside it: without this, every new composition of the
+ * profile asked again, and one refused session turned into a storm of `/me` requests.
+ */
+class AccountReadGuard {
+    private var reading = false
+
+    /** True when this caller starts the read; false when one is already running. */
+    @Synchronized
+    fun begin(): Boolean {
+        if (reading) return false
+        reading = true
+        return true
+    }
+
+    @Synchronized
+    fun end() {
+        reading = false
+    }
+}
+
+/**
  * The single coordinator of the local entitlement: IS_PREMIUM, WORD_LIMIT and the Analytics plan
  * are written here and nowhere else, and only from an answer that still belongs to the account it
  * was read for. Billing is the authority; the legacy account route may initialize state and a
@@ -62,6 +96,16 @@ class DictionarySyncService(
         }
     }
 
+    /**
+     * Whether this device is running on an applied Premium entitlement — the one word limit the
+     * profile line may show, because it is the one the composer is held to.
+     */
+    suspend fun isEntitledPremium(): Boolean = repository.isPremiumUser()
+
+    /**
+     * The cloud profile. A read that was refused or never answered throws, and the caller keeps the
+     * profile it last had: there is nothing in a non-answer that could replace an entitlement.
+     */
     suspend fun refreshAccount(authUser: AuthUser?): AccountInfo {
         val account = apiClient.fetchAccount(
             uid = authUser?.uid.orEmpty(),

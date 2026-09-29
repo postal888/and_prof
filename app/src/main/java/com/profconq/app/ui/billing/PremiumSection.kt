@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.profconq.app.billing.BillingNotice
 import com.profconq.app.billing.BillingUiState
 import com.profconq.app.billing.BuyLock
+import com.profconq.app.billing.EntitlementGate
 import com.profconq.app.billing.NoticeSeverity
 import com.profconq.app.billing.PlanView
 import com.profconq.app.billing.PlansDiagnostics
@@ -78,10 +79,17 @@ fun PremiumSection(
 ) {
     val strings = LocalUiStrings.current
     val activity = LocalContext.current as? Activity
-    val plansEnabled = !state.busy && !state.plansLoading && state.status != PremiumStatus.Active
+    // The gate the last server answer supports: an entitlement that waits for a re-check is not a
+    // shelf to buy from, and the plan rows say so instead of looking free to pick.
+    val gate = state.entitlementGate
+    val plansEnabled = !state.busy && !state.plansLoading &&
+        state.status != PremiumStatus.Active &&
+        gate != EntitlementGate.Active &&
+        gate != EntitlementGate.NeedsReverify &&
+        gate != EntitlementGate.ReverifyFailed
     // One rule for the button and for the ViewModel's press: a sheet opens only from a list both
     // the server and Play confirmed during this load.
-    val lock = buyLockOf(state, signedIn)
+    val lock = buyLockOf(state, signedIn, gate)
     val canBuy = lock == BuyLock.None
 
     Column(

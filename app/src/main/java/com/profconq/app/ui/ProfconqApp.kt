@@ -101,6 +101,7 @@ fun ProfconqApp(
     val authBusy by viewModel.authBusy.collectAsState()
     val authError by viewModel.authError.collectAsState()
     val cloudAccount by viewModel.cloudAccount.collectAsState()
+    val wordLimitProjection by viewModel.wordLimitProjection.collectAsState()
     val syncBusy by viewModel.syncBusy.collectAsState()
     val syncMessage by viewModel.syncMessage.collectAsState()
     val syncPrimary by viewModel.syncPrimary.collectAsState()
@@ -163,6 +164,10 @@ fun ProfconqApp(
             ),
         )
         val billingState by billingViewModel.state.collectAsStateWithLifecycle()
+        val profileWordLimit = wordLimitProjectionForBilling(
+            wordLimitProjection,
+            billingState.status,
+        )
         val billingSignedIn = authUser != null
         // Keyed on the account, not on a signed-in boolean: a direct switch from one account to
         // another has to drop the previous one's entitlement before anything is read again.
@@ -522,6 +527,7 @@ fun ProfconqApp(
                     authBusy = authBusy,
                     authError = authError,
                     cloudAccount = cloudAccount,
+                    wordLimitProjection = profileWordLimit,
                     localWordCount = vocabularyWordCount,
                     syncBusy = syncBusy,
                     syncMessage = syncMessage,

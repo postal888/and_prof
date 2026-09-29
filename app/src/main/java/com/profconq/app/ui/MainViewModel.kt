@@ -6,14 +6,18 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.common.api.ApiException
 import com.profconq.app.api.AccountInfo
+import com.profconq.app.api.AccountReadGuard
 import com.profconq.app.api.DictionarySyncService
 import com.profconq.app.api.MirrorSyncResult
 import com.profconq.app.api.ProfconqAdminSession
 import com.profconq.app.api.ProfconqApiException
 import com.profconq.app.api.ProfconqSessionAuth
 import com.profconq.app.api.SyncPrimary
+import com.profconq.app.api.profileOf
 import com.profconq.app.auth.AuthUser
 import com.profconq.app.auth.FirebaseAuthManager
+import com.profconq.app.billing.PremiumStatus
+import com.profconq.app.data.WordLimitPolicy
 import com.profconq.app.data.model.AppSettings
 import com.profconq.app.data.model.AppThemeMode
 import com.profconq.app.data.model.Collection
@@ -36,6 +40,48 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+sealed interface WordLimitProjection {
+    data object Unknown : WordLimitProjection
+    data object Unlimited : WordLimitProjection
+    data class Limited(val value: Int) : WordLimitProjection
+}
+
+internal fun wordLimitProjectionForBilling(
+    current: WordLimitProjection,
+    status: PremiumStatus,
+): WordLimitProjection = when (status) {
+    PremiumStatus.Active,
+    PremiumStatus.Stale,
+    -> WordLimitProjection.Unlimited
+
+    PremiumStatus.Free -> WordLimitProjection.Limited(WordLimitPolicy.FREE_LIMIT)
+    else -> current
+}
+
+internal class WordLimitProjectionState {
+    private val _value = MutableStateFlow<WordLimitProjection>(WordLimitProjection.Unknown)
+    val value: StateFlow<WordLimitProjection> = _value.asStateFlow()
+
+    fun restorePersistedPremium(isPremium: Boolean) {
+        if (isPremium && _value.value == WordLimitProjection.Unknown) {
+            _value.value = WordLimitProjection.Unlimited
+        }
+    }
+
+    fun publish(result: Result<AccountInfo>) {
+        val account = result.getOrNull() ?: return
+        _value.value = if (account.isPremium) {
+            WordLimitProjection.Unlimited
+        } else {
+            WordLimitProjection.Limited(account.wordLimit)
+        }
+    }
+
+    fun clear() {
+        _value.value = WordLimitProjection.Unknown
+    }
+}
+
 class MainViewModel(
     private val repository: ProfconqRepository,
     private val authManager: FirebaseAuthManager,
@@ -51,6 +97,8 @@ class MainViewModel(
     val authError: StateFlow<String?> = _authError.asStateFlow()
     private val _cloudAccount = MutableStateFlow<AccountInfo?>(null)
     val cloudAccount: StateFlow<AccountInfo?> = _cloudAccount.asStateFlow()
+    private val wordLimitProjectionState = WordLimitProjectionState()
+    val wordLimitProjection: StateFlow<WordLimitProjection> = wordLimitProjectionState.value
     private val _syncBusy = MutableStateFlow(false)
     val syncBusy: StateFlow<Boolean> = _syncBusy.asStateFlow()
     private val _syncMessage = MutableStateFlow<String?>(null)
@@ -72,6 +120,9 @@ class MainViewModel(
 
     init {
         viewModelScope.launch {
+            wordLimitProjectionState.restorePersistedPremium(
+                dictionarySyncService.isEntitledPremium()
+            )
             _syncPrimary.value = dictionarySyncService.getSyncPrimary()
             _adminUsername.value = adminSession.currentUsername()
             restoreSiteSession()
@@ -319,6 +370,7 @@ class MainViewModel(
             // site refused to release must never stay behind on the device.
             authManager.setSiteUser(null)
             _cloudAccount.value = null
+            wordLimitProjectionState.clear()
             _syncMessage.value = null
             _wordLimitMessage.value = null
             _promoMessage.value = null
@@ -392,7 +444,7 @@ class MainViewModel(
             _promoMessage.value = null
             runCatching { dictionarySyncService.redeemPromoCode(authUser.value, trimmed) }
                 .onSuccess { account ->
-                    _cloudAccount.value = account
+                    publishCloudAccount(account)
                     _wordLimitMessage.value = null
                     _promoMessage.value = uiStrings().promoSuccess(account.wordLimit)
                 }
@@ -430,11 +482,30 @@ class MainViewModel(
         }
     }
 
+    /** One account read at a time, so a re-composed screen cannot stack reads beside it. */
+    private val cloudAccountRead = AccountReadGuard()
+
+    /** Publishes the profile line, which agrees with the entitlement this device applied. */
+    private suspend fun publishCloudAccount(account: AccountInfo) {
+        val profile = profileOf(dictionarySyncService.isEntitledPremium(), account)
+        _cloudAccount.value = profile
+        wordLimitProjectionState.publish(Result.success(profile))
+    }
+
     private fun refreshCloudAccount() {
         if (authManager.authUser.value == null) return
+        if (!cloudAccountRead.begin()) return
         viewModelScope.launch {
-            runCatching { dictionarySyncService.refreshAccount(authUser.value) }
-                .onSuccess { _cloudAccount.value = it }
+            val result = runCatching { dictionarySyncService.refreshAccount(authUser.value) }
+            cloudAccountRead.end()
+            // A refused or unreachable read said nothing about this account, so it publishes
+            // nothing: writing a fabricated free profile here recomposed the screen, which read the
+            // account again, and one expired session became a storm of refused requests.
+            val account = result.getOrNull() ?: run {
+                wordLimitProjectionState.publish(result)
+                return@launch
+            }
+            publishCloudAccount(account)
         }
     }
 
@@ -454,7 +525,7 @@ class MainViewModel(
             _syncMessage.value = null
             runCatching { dictionarySyncService.mirrorSync(authUser.value, primary) }
                 .onSuccess { result ->
-                    _cloudAccount.value = result.account
+                    publishCloudAccount(result.account)
                     _wordLimitMessage.value = null
                     _syncMessage.value = formatMirrorSyncMessage(result)
                 }

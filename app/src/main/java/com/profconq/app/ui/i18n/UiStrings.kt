@@ -2110,7 +2110,7 @@ class UiStrings(private val language: AppLanguage) {
     val profileTagline: String
         get() = when (language) {
             AppLanguage.RU -> "Proficiência Conquistada"
-            AppLanguage.EN -> "Proficiency Achieved"
+            AppLanguage.EN -> "Proficiency conquered"
             AppLanguage.PT -> "Proficiência Conquistada"
         }
 

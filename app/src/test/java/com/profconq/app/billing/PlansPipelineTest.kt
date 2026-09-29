@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -316,6 +317,197 @@ class PlansPipelineTest {
             buyLockOf(base.copy(plansFresh = true, status = PremiumStatus.Active), signedIn = true),
         )
     }
+
+    // The entitlement states the buy button reads, kept apart from the plan list: an owned plan is
+    // not for sale, a record the server still calls entitled waits for one re-check, and only a
+    // trustworthy answer of no access opens buying again.
+    /** Confirmed access locks the plan it was granted on. */
+    @Test
+    fun activeEntitlementLocksCurrentPlan() {
+        val gate = entitlementGateOf(premiumAnswer, signedIn = true)
+        assertEquals(EntitlementGate.Active, gate)
+        assertEquals(BuyLock.AlreadyActive, buyLockOf(freshRows(selected = monthly), signedIn = true, gate))
+        // `stale` says Google could not be re-confirmed, which never removes granted access.
+        val stale = entitlementGateOf(snapshotOf(plan = "premium", stale = true), signedIn = true)
+        assertEquals(BuyLock.AlreadyActive, buyLockOf(freshRows(selected = monthly), signedIn = true, stale))
+    }
+
+    /**
+     * Until the replacement flow exists there is no second sheet to open for the same product, so
+     * an owned monthly plan holds the annual row closed too rather than offering it as an upgrade.
+     */
+    @Test
+    fun activeEntitlementLocksOtherPlanUntilReplacementFlow() {
+        val gate = entitlementGateOf(premiumAnswer, signedIn = true)
+        assertEquals(BuyLock.AlreadyActive, buyLockOf(freshRows(selected = annual), signedIn = true, gate))
+    }
+
+    /**
+     * The incident state: the server projects no access while a record it listed still reads as
+     * entitled. That is a re-check to be paid, not a plan to buy and not a confirmed Active either.
+     */
+    @Test
+    fun uncertainLocalEntitlementRequiresReverify() {
+        val gate = entitlementGateOf(uncertainAnswer, signedIn = true)
+        assertEquals(EntitlementGate.NeedsReverify, gate)
+        assertNotEquals("An owed re-check must not be shown as confirmed access", EntitlementGate.Active, gate)
+        val lock = buyLockOf(freshRows(selected = monthly), signedIn = true, gate)
+        assertNotEquals(BuyLock.AlreadyActive, lock)
+        assertEquals(BuyLock.NeedsReverify, lock)
+    }
+
+    /** A server answer of no access, with nothing it reported still granting any, unlocks buying. */
+    @Test
+    fun authoritativeExpiryUnlocksPurchase() {
+        for (status in listOf("expired", "revoked", "refunded", "replaced")) {
+            val gate = entitlementGateOf(snapshotOf(plan = "free", statuses = listOf(status)), signedIn = true)
+            assertEquals("$status is terminal", EntitlementGate.FreeAuthoritative, gate)
+            assertEquals(BuyLock.None, buyLockOf(freshRows(selected = monthly), signedIn = true, gate))
+        }
+        // A record that grants nothing on its own, like a paused or pending purchase, is a
+        // consistent free answer: Play decides, and the user is never left waiting for nothing.
+        for (status in listOf("pending", "on_hold", "paused", "unknown")) {
+            assertEquals(
+                "$status grants no access, so free is the whole answer",
+                EntitlementGate.FreeAuthoritative,
+                entitlementGateOf(snapshotOf(plan = "free", statuses = listOf(status)), signedIn = true),
+            )
+        }
+    }
+
+    /** A temporary failure of the re-check never reads as "you are free after all". */
+    @Test
+    fun transientFailureDoesNotUnlockPurchaseAsFree() {
+        val buyGate = BuyGate(clock = { 0L })
+        assertEquals(EntitlementGate.NeedsReverify, buyGate.onSnapshot(uncertainAnswer, signedIn = true))
+        for (error in listOf(
+            BillingError.Network,
+            BillingError.RateLimited,
+            BillingError.UpstreamUnavailable,
+            BillingError.ServiceUnavailable,
+            BillingError.Unauthorized,
+        )) {
+            val gate = buyGate.onReverifyFailure(error, signedIn = true)
+            assertNotEquals("$error must not be read as free", EntitlementGate.FreeAuthoritative, gate)
+            assertEquals("$error waits for a re-check", EntitlementGate.ReverifyFailed, gate)
+            val lock = buyLockOf(freshRows(selected = monthly), signedIn = true, buyGate.current())
+            assertEquals(BuyLock.ReverifyCooldown, lock)
+        }
+    }
+
+    /** The retry after a failed re-check is gated by a cooldown, not by a new free verdict. */
+    @Test
+    fun retryAfterTransientFailureRespectsCooldown() {
+        var now = 0L
+        val buyGate = BuyGate(clock = { now })
+        buyGate.onSnapshot(uncertainAnswer, signedIn = true)
+        buyGate.onReverifyFailure(BillingError.Network, signedIn = true)
+        assertFalse("A press inside the cooldown asks nothing of Play or the server", buyGate.restoreAllowed())
+
+        now = BuyGate.CooldownMs - 1
+        assertFalse(buyGate.restoreAllowed())
+
+        now = BuyGate.CooldownMs
+        assertTrue("After the cooldown the same re-check may run again", buyGate.restoreAllowed())
+        assertEquals(
+            "A passed cooldown is a re-check still owed, not access that ended",
+            EntitlementGate.NeedsReverify,
+            buyGate.current(),
+        )
+    }
+
+    /** The re-check settles in one answer either way, and settling it ends the wait. */
+    @Test
+    fun restoreSuccessReplacesStaleExpiry() {
+        val now = 0L
+        val buyGate = BuyGate(clock = { now })
+        buyGate.onSnapshot(uncertainAnswer, signedIn = true)
+        buyGate.onReverifyFailure(BillingError.RateLimited, signedIn = true)
+
+        // Google answered while the cooldown still ran: the record is terminal now, so buying opens
+        // again and a re-check that is no longer owed is not waited for either.
+        assertEquals(
+            EntitlementGate.FreeAuthoritative,
+            buyGate.onSnapshot(snapshotOf(plan = "free", statuses = listOf("expired")), signedIn = true),
+        )
+        assertTrue("A settled answer is not held behind a cooldown", buyGate.restoreAllowed())
+        assertEquals(
+            BuyLock.None,
+            buyLockOf(freshRows(selected = monthly), signedIn = true, buyGate.current()),
+        )
+
+        // The same press on an account that really does own it: the gate follows the answer.
+        assertEquals(EntitlementGate.Active, buyGate.onSnapshot(premiumAnswer, signedIn = true))
+        assertEquals(BuyLock.AlreadyActive, buyLockOf(freshRows(selected = monthly), signedIn = true, buyGate.current()))
+    }
+
+    /**
+     * NeedsReverify always has a way out and never becomes a permanent lock: an explicit re-check is
+     * available, a cooldown only delays it, an answer settles it, and a local record without any
+     * answer cannot close buying at all.
+     */
+    @Test
+    fun noInfiniteNeedsReverify() {
+        var now = 0L
+        val buyGate = BuyGate(clock = { now })
+        assertEquals(EntitlementGate.NeedsReverify, buyGate.onSnapshot(uncertainAnswer, signedIn = true))
+        assertTrue("Restore is the way out, and it is open from the first moment", buyGate.restoreAllowed())
+
+        buyGate.onReverifyFailure(BillingError.Network, signedIn = true)
+        assertFalse(buyGate.restoreAllowed())
+        now = BuyGate.CooldownMs
+        assertEquals(EntitlementGate.NeedsReverify, buyGate.current())
+        assertTrue(buyGate.restoreAllowed())
+
+        // An answer of no access ends it for good.
+        assertEquals(
+            EntitlementGate.FreeAuthoritative,
+            buyGate.onSnapshot(snapshotOf(plan = "free", statuses = listOf("expired")), signedIn = true),
+        )
+        assertEquals(BuyLock.None, buyLockOf(freshRows(selected = monthly), signedIn = true, buyGate.current()))
+
+        // Nothing was ever answered: the local record alone is not a lock.
+        assertEquals(EntitlementGate.Unknown, entitlementGateOf(null, signedIn = true))
+        assertEquals(BuyLock.None, buyLockOf(freshRows(selected = monthly), signedIn = true, EntitlementGate.Unknown))
+    }
+
+    /** A row whose base plan this client does not know is not a plan to launch, gate or no gate. */
+    @Test
+    fun unknownBasePlanRemainsLocked() {
+        val stranger = "lifetime_deal"
+        assertNull(BillingContract.planRank(stranger))
+        val state = freshRows(selected = stranger)
+        assertEquals(BuyLock.NoFreshPlan, buyLockOf(state, signedIn = true, EntitlementGate.FreeAuthoritative))
+        assertEquals(BuyLock.NeedsReverify, buyLockOf(state, signedIn = true, EntitlementGate.NeedsReverify))
+        assertEquals(BuyLock.AlreadyActive, buyLockOf(state, signedIn = true, EntitlementGate.Active))
+    }
+
+    /** A `/status` answer of the shape the server sends: a projection plus the rows behind it. */
+    private fun snapshotOf(plan: String, statuses: List<String> = emptyList(), stale: Boolean = false): PremiumSnapshot {
+        val rows = statuses.mapIndexed { index, status ->
+            """{"id":"ent-$index","source":"google_play","productId":"profconq_premium",""" +
+                """"basePlanId":"$monthly","status":"$status","startedAt":null,"expiresAt":null,""" +
+                """"autoRenews":true,"lastVerifiedAt":null}"""
+        }.joinToString(",")
+        return PremiumSnapshot.parse(
+            """{"plan":"$plan","wordLimit":${if (plan == "premium") "null" else "10"},""" +
+                """"entitlements":[$rows],"governing":null,"stale":$stale,"checkedAt":1}"""
+        )
+    }
+
+    /** Confirmed access, with the row that grants it still listed. */
+    private val premiumAnswer: PremiumSnapshot get() = snapshotOf("premium", listOf("active"))
+
+    /** The disagreement the buy button has to wait on: no access projected, a live record listed. */
+    private val uncertainAnswer: PremiumSnapshot get() = snapshotOf("free", listOf("active"))
+
+    /** A list both the server and Play confirmed, ready to buy from if the entitlement allows it. */
+    private fun freshRows(selected: String): BillingUiState = BillingUiState(
+        status = PremiumStatus.Free,
+        plans = listOf(PlanView(monthly, vendorTitle, "129 ₽"), PlanView(annual, vendorTitle, "990 ₽")),
+        selectedBasePlanId = selected,
+        plansFresh = true,
+    )
 
     /** 15: nothing that could be replayed travels with the diagnostics. */
     @Test

@@ -498,6 +498,12 @@ data class BillingUiState(
 
     /** Safe counts and documented codes of the last load, for the compact code testers can read. */
     val plansDiagnostics: PlansDiagnostics? = null,
+
+    /**
+     * What the last server answer supports about the entitlement, and the only thing that decides
+     * whether buying waits for a re-check. Local records are never one of these by themselves.
+     */
+    val entitlementGate: EntitlementGate = EntitlementGate.Unknown,
 )
 
 enum class BillingError {

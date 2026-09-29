@@ -53,9 +53,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.profconq.app.api.AccountInfo
 import com.profconq.app.api.SyncPrimary
-import com.profconq.app.data.WordLimitPolicy
 import com.profconq.app.auth.AuthUser
 import com.profconq.app.data.model.AppSettings
+import com.profconq.app.ui.WordLimitProjection
 import com.profconq.app.data.model.AppThemeMode
 import com.profconq.app.data.model.SubtitleFontSize
 import com.profconq.app.data.model.TodayPlan
@@ -123,6 +123,7 @@ fun ProfileScreen(
     authBusy: Boolean,
     authError: String?,
     cloudAccount: AccountInfo?,
+    wordLimitProjection: WordLimitProjection,
     localWordCount: Int,
     syncBusy: Boolean,
     syncMessage: String?,
@@ -251,19 +252,18 @@ fun ProfileScreen(
                         modifier = Modifier.clickable { onClearAuthError() },
                     )
                 }
-                val wordLimit = cloudAccount?.wordLimit ?: WordLimitPolicy.FREE_LIMIT
-                val wordLimitLabel = if (wordLimit >= WordLimitPolicy.UNLIMITED / 2) "∞" else wordLimit.toString()
+                val wordLimitLabel = when (wordLimitProjection) {
+                    WordLimitProjection.Unknown -> "—"
+                    WordLimitProjection.Unlimited -> "∞"
+                    is WordLimitProjection.Limited -> wordLimitProjection.value.toString()
+                }
                 if (authUser == null) {
                     MutedText("${strings.profileLocalWords}: $localWordCount / $wordLimitLabel")
                 } else {
-                    val wordCount = cloudAccount?.wordCount
-                    if (wordCount != null) {
-                        MutedText("${strings.profileCloudWords}: $wordCount / $wordLimitLabel")
-                    } else {
-                        MutedText("${strings.profileLocalWords}: $localWordCount / $wordLimitLabel")
-                    }
+                    val wordCountLabel = cloudAccount?.wordCount?.toString() ?: "—"
+                    MutedText("${strings.profileCloudWords}: $wordCountLabel / $wordLimitLabel")
                 }
-                if (authUser != null && cloudAccount?.isPremium != true) {
+                if (authUser != null && wordLimitProjection != WordLimitProjection.Unlimited) {
                     var promoInput by remember { mutableStateOf("") }
                     Text(
                         text = strings.profilePromoSection,
