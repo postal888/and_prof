@@ -6,16 +6,22 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -135,12 +141,16 @@ fun PremiumSection(
             if (state.plans.isNotEmpty()) {
                 // One full-width row per plan: Play gives both base plans the same product title,
                 // so the localized period is what actually tells them apart.
+                val premiumActive = state.status == PremiumStatus.Active ||
+                    state.status == PremiumStatus.Stale ||
+                    gate == EntitlementGate.Active
                 state.plans.forEach { plan ->
                     PlanOption(
                         name = strings.premiumPlanName(plan.basePlanId, plan.title),
                         priceLine = strings.premiumPlanPriceLine(plan.basePlanId, plan.price),
                         selected = plan.basePlanId == state.selectedBasePlanId,
                         enabled = plansEnabled,
+                        premiumActive = premiumActive,
                         onSelect = { onSelectPlan(plan.basePlanId) },
                     )
                 }
@@ -203,23 +213,69 @@ fun PremiumSection(
  * A plan row: its own localized period name over Google's own formatted price. The content sets
  * the height, which may only ever grow, and the selected row keeps the accent fill the chips use.
  */
+internal enum class PlanOptionSemantics {
+    Selectable,
+    Current,
+    Unavailable,
+}
+
+internal data class PlanOptionPresentation(
+    val name: String,
+    val priceLine: String,
+    val enabled: Boolean,
+    val contentAlpha: Float,
+    val semantics: PlanOptionSemantics,
+) {
+    fun select(onSelect: () -> Unit) {
+        if (enabled) onSelect()
+    }
+}
+
+internal fun planOptionPresentation(
+    name: String,
+    priceLine: String,
+    selected: Boolean,
+    enabled: Boolean,
+    premiumActive: Boolean,
+): PlanOptionPresentation {
+    val semantics = when {
+        enabled -> PlanOptionSemantics.Selectable
+        premiumActive && selected -> PlanOptionSemantics.Current
+        else -> PlanOptionSemantics.Unavailable
+    }
+    return PlanOptionPresentation(
+        name = name,
+        priceLine = priceLine,
+        enabled = enabled,
+        // The name and price never dim: a disabled row stays fully legible, and the buy-lock is
+        // carried by the click being dead plus the Current marker, not by fading the text out.
+        contentAlpha = 1f,
+        semantics = semantics,
+    )
+}
+
 @Composable
 private fun PlanOption(
     name: String,
     priceLine: String,
     selected: Boolean,
     enabled: Boolean,
+    premiumActive: Boolean,
     onSelect: () -> Unit,
 ) {
+    val presentation = planOptionPresentation(
+        name = name,
+        priceLine = priceLine,
+        selected = selected,
+        enabled = enabled,
+        premiumActive = premiumActive,
+    )
     val shape = PortChipShape
-    val fillColor = if (!enabled) PpTextMuted.copy(alpha = 0.4f) else if (selected) PpBrandNavy else PpHeading
-    val priceColor = if (!enabled) {
-        PpTextMuted.copy(alpha = 0.4f)
-    } else if (selected) {
-        PpBrandNavy.copy(alpha = 0.75f)
-    } else {
-        PpTextMuted
-    }
+    // Contrast follows the background, not the enabled flag: the selected row sits on the light
+    // accent gradient so its text is navy, every other row sits on a dark surface so its text is
+    // light. A disabled row keeps the same pairing instead of washing out to unreadable gray.
+    val fillColor = if (selected) PpBrandNavy else PpHeading
+    val priceColor = if (selected) PpBrandNavy else PpTextMuted
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -250,19 +306,36 @@ private fun PlanOption(
                 },
                 shape = shape,
             )
-            .portClickable(enabled = enabled, onClick = onSelect)
+            .portClickable(
+                enabled = presentation.enabled,
+                onClick = { presentation.select(onSelect) },
+            )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(
-            text = name,
-            color = fillColor,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.SemiBold,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (presentation.semantics == PlanOptionSemantics.Current) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = fillColor,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Text(
+                text = presentation.name,
+                color = fillColor,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Text(
-            text = priceLine,
+            text = presentation.priceLine,
             color = priceColor,
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.fillMaxWidth(),

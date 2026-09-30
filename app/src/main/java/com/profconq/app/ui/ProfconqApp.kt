@@ -164,11 +164,10 @@ fun ProfconqApp(
             ),
         )
         val billingState by billingViewModel.state.collectAsStateWithLifecycle()
-        val profileWordLimit = wordLimitProjectionForBilling(
-            wordLimitProjection,
-            billingState.status,
-        )
         val billingSignedIn = authUser != null
+        androidx.compose.runtime.LaunchedEffect(billingState.status) {
+            viewModel.publishBillingStatus(billingState.status)
+        }
         // Keyed on the account, not on a signed-in boolean: a direct switch from one account to
         // another has to drop the previous one's entitlement before anything is read again.
         androidx.compose.runtime.LaunchedEffect(authUser?.uid) {
@@ -527,7 +526,7 @@ fun ProfconqApp(
                     authBusy = authBusy,
                     authError = authError,
                     cloudAccount = cloudAccount,
-                    wordLimitProjection = profileWordLimit,
+                    wordLimitProjection = wordLimitProjection,
                     localWordCount = vocabularyWordCount,
                     syncBusy = syncBusy,
                     syncMessage = syncMessage,

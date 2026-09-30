@@ -46,39 +46,54 @@ sealed interface WordLimitProjection {
     data class Limited(val value: Int) : WordLimitProjection
 }
 
-internal fun wordLimitProjectionForBilling(
-    current: WordLimitProjection,
-    status: PremiumStatus,
-): WordLimitProjection = when (status) {
-    PremiumStatus.Active,
-    PremiumStatus.Stale,
-    -> WordLimitProjection.Unlimited
-
-    PremiumStatus.Free -> WordLimitProjection.Limited(WordLimitPolicy.FREE_LIMIT)
-    else -> current
-}
-
 internal class WordLimitProjectionState {
     private val _value = MutableStateFlow<WordLimitProjection>(WordLimitProjection.Unknown)
     val value: StateFlow<WordLimitProjection> = _value.asStateFlow()
+    private var persisted: WordLimitProjection = WordLimitProjection.Unknown
+    private var account: WordLimitProjection = WordLimitProjection.Unknown
+    private var billing: WordLimitProjection = WordLimitProjection.Unknown
 
     fun restorePersistedPremium(isPremium: Boolean) {
-        if (isPremium && _value.value == WordLimitProjection.Unknown) {
-            _value.value = WordLimitProjection.Unlimited
+        persisted = if (isPremium) WordLimitProjection.Unlimited else WordLimitProjection.Unknown
+        publishResolved()
+    }
+
+    fun publishBillingStatus(status: PremiumStatus) {
+        billing = when (status) {
+            PremiumStatus.Active,
+            PremiumStatus.Stale,
+            -> WordLimitProjection.Unlimited
+
+            PremiumStatus.Free -> WordLimitProjection.Limited(WordLimitPolicy.FREE_LIMIT)
+            PremiumStatus.Loading -> WordLimitProjection.Unknown
+            else -> billing
         }
+        publishResolved()
     }
 
     fun publish(result: Result<AccountInfo>) {
-        val account = result.getOrNull() ?: return
-        _value.value = if (account.isPremium) {
+        val profile = result.getOrNull() ?: return
+        account = if (profile.isPremium) {
             WordLimitProjection.Unlimited
         } else {
-            WordLimitProjection.Limited(account.wordLimit)
+            WordLimitProjection.Limited(profile.wordLimit)
         }
+        publishResolved()
     }
 
     fun clear() {
-        _value.value = WordLimitProjection.Unknown
+        persisted = WordLimitProjection.Unknown
+        account = WordLimitProjection.Unknown
+        billing = WordLimitProjection.Unknown
+        publishResolved()
+    }
+
+    private fun publishResolved() {
+        _value.value = when {
+            billing != WordLimitProjection.Unknown -> billing
+            account != WordLimitProjection.Unknown -> account
+            else -> persisted
+        }
     }
 }
 
@@ -136,6 +151,10 @@ class MainViewModel(
                 }
             }
             .launchIn(viewModelScope)
+    }
+
+    fun publishBillingStatus(status: PremiumStatus) {
+        wordLimitProjectionState.publishBillingStatus(status)
     }
 
     val collections: StateFlow<List<Collection>> =

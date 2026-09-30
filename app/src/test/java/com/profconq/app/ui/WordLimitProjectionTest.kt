@@ -19,20 +19,32 @@ class WordLimitProjectionTest {
     )
 
     @Test
-    fun premiumSnapshotBeforeMeShowsUnlimited() {
-        assertEquals(
-            WordLimitProjection.Unlimited,
-            wordLimitProjectionForBilling(
-                WordLimitProjection.Unknown,
-                PremiumStatus.Active,
-            ),
+    fun premiumActiveWithNullAccountShowsUnlimited() {
+        val state = WordLimitProjectionState()
+
+        state.publishBillingStatus(PremiumStatus.Active)
+
+        assertEquals(WordLimitProjection.Unlimited, state.value.value)
+    }
+
+    @Test
+    fun premiumActiveOverridesStaleFreeAccountLimit() {
+        val state = WordLimitProjectionState()
+        state.publish(
+            Result.success(
+                account(isPremium = false, wordLimit = WordLimitPolicy.FREE_LIMIT)
+            )
         )
+
+        state.publishBillingStatus(PremiumStatus.Active)
+
+        assertEquals(WordLimitProjection.Unlimited, state.value.value)
     }
 
     @Test
     fun unauthorizedMeDoesNotReplaceUnlimited() {
         val state = WordLimitProjectionState()
-        state.restorePersistedPremium(true)
+        state.publishBillingStatus(PremiumStatus.Active)
 
         state.publish(Result.failure(ProfconqApiException.Unauthorized()))
 
@@ -42,7 +54,7 @@ class WordLimitProjectionTest {
     @Test
     fun transientMeFailureDoesNotReplaceUnlimited() {
         val state = WordLimitProjectionState()
-        state.restorePersistedPremium(true)
+        state.publishBillingStatus(PremiumStatus.Active)
 
         state.publish(Result.failure(ProfconqApiException.HttpError(503, null)))
 
@@ -50,14 +62,12 @@ class WordLimitProjectionTest {
     }
 
     @Test
-    fun authoritativeFreeMePublishesTen() {
+    fun authoritativeFreeAccountShowsTen() {
         val state = WordLimitProjectionState()
+        state.publishBillingStatus(PremiumStatus.Free)
         state.publish(
             Result.success(
-                account(
-                    isPremium = false,
-                    wordLimit = WordLimitPolicy.FREE_LIMIT,
-                )
+                account(isPremium = false, wordLimit = WordLimitPolicy.FREE_LIMIT)
             )
         )
 
@@ -68,14 +78,28 @@ class WordLimitProjectionTest {
     }
 
     @Test
+    fun premiumStatusAndDisplayedLimitCannotDisagree() {
+        val state = WordLimitProjectionState()
+        state.publish(
+            Result.success(
+                account(isPremium = false, wordLimit = WordLimitPolicy.FREE_LIMIT)
+            )
+        )
+
+        state.publishBillingStatus(PremiumStatus.Active)
+
+        assertNotEquals(
+            WordLimitProjection.Limited(WordLimitPolicy.FREE_LIMIT),
+            state.value.value,
+        )
+    }
+
+    @Test
     fun successfulPremiumMePublishesUnlimited() {
         val state = WordLimitProjectionState()
         state.publish(
             Result.success(
-                account(
-                    isPremium = true,
-                    wordLimit = WordLimitPolicy.UNLIMITED,
-                )
+                account(isPremium = true, wordLimit = WordLimitPolicy.UNLIMITED)
             )
         )
 
@@ -105,7 +129,7 @@ class WordLimitProjectionTest {
     @Test
     fun confirmedSignOutClearsPremiumProjection() {
         val state = WordLimitProjectionState()
-        state.restorePersistedPremium(true)
+        state.publishBillingStatus(PremiumStatus.Active)
 
         state.clear()
 
