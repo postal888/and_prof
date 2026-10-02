@@ -142,12 +142,6 @@ fun ProfileScreen(
     onClearAuthError: () -> Unit,
     onMirrorSync: () -> Unit,
     onClearSyncMessage: () -> Unit,
-    adminUsername: String? = null,
-    adminBusy: Boolean = false,
-    adminError: String? = null,
-    onAdminSignIn: (String, String) -> Unit = { _, _ -> },
-    onAdminSignOut: () -> Unit = {},
-    onClearAdminError: () -> Unit = {},
     premiumSection: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -502,72 +496,6 @@ fun ProfileScreen(
                 )
             }
         }
-        }
-
-        item {
-            SectionTitle(title = strings.profileAdminSection)
-            PortCard {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MutedText(strings.profileAdminHint)
-                    if (adminUsername != null) {
-                        Text(
-                            text = strings.profileAdminSignedInAs(adminUsername),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = PpHeading,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        GlassOutlineButton(
-                            text = if (adminBusy) strings.profileAuthLoading
-                            else strings.profileAdminSignOut,
-                            onClick = onAdminSignOut,
-                            enabled = !adminBusy,
-                            compact = true,
-                        )
-                    } else {
-                        var adminLogin by remember { mutableStateOf("") }
-                        var adminPassword by remember { mutableStateOf("") }
-                        OutlinedTextField(
-                            value = adminLogin,
-                            onValueChange = { adminLogin = it },
-                            label = { Text(strings.profileAdminLogin) },
-                            singleLine = true,
-                            enabled = !adminBusy,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = PpAccent,
-                                unfocusedBorderColor = PpBorder,
-                            ),
-                        )
-                        OutlinedTextField(
-                            value = adminPassword,
-                            onValueChange = { adminPassword = it },
-                            label = { Text(strings.profileAdminPassword) },
-                            singleLine = true,
-                            enabled = !adminBusy,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = PpAccent,
-                                unfocusedBorderColor = PpBorder,
-                            ),
-                        )
-                        GlassOutlineButton(
-                            text = if (adminBusy) strings.profileAuthLoading
-                            else strings.profileAdminSignIn,
-                            onClick = { onAdminSignIn(adminLogin, adminPassword) },
-                            enabled = !adminBusy && adminLogin.isNotBlank() && adminPassword.isNotBlank(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    adminError?.let {
-                        Text(
-                            text = it,
-                            color = PpDanger,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.clickable { onClearAdminError() },
-                        )
-                    }
-                }
-            }
         }
 
         item { Spacer(modifier = Modifier.height(16.dp)) }

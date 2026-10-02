@@ -110,9 +110,6 @@ fun ProfconqApp(
     val wordLimitMessage by viewModel.wordLimitMessage.collectAsState()
     val promoBusy by viewModel.promoBusy.collectAsState()
     val promoMessage by viewModel.promoMessage.collectAsState()
-    val adminUsername by viewModel.adminUsername.collectAsState()
-    val adminBusy by viewModel.adminBusy.collectAsState()
-    val adminError by viewModel.adminError.collectAsState()
     val accountSwitchPending by viewModel.accountSwitchPending.collectAsState()
     val accountSwitchBusy by viewModel.accountSwitchBusy.collectAsState()
     val vocabularyWordCount = remember(collections, dictionary) {
@@ -570,12 +567,6 @@ fun ProfconqApp(
                     onClearAuthError = viewModel::clearAuthError,
                     onMirrorSync = viewModel::runCloudMirrorSync,
                     onClearSyncMessage = viewModel::clearSyncMessage,
-                    adminUsername = adminUsername,
-                    adminBusy = adminBusy,
-                    adminError = adminError,
-                    onAdminSignIn = viewModel::signInAdmin,
-                    onAdminSignOut = viewModel::signOutAdmin,
-                    onClearAdminError = viewModel::clearAdminError,
                     premiumSection = {
                         com.profconq.app.ui.billing.PremiumSection(
                             state = billingState,

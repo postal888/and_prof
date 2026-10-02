@@ -3,7 +3,6 @@
 import android.app.Application
 import com.profconq.app.analytics.ProfconqAnalytics
 import com.profconq.app.api.DictionarySyncService
-import com.profconq.app.api.ProfconqAdminSession
 import com.profconq.app.api.ProfconqApiClient
 import com.profconq.app.api.ProfconqSessionAuth
 import com.profconq.app.auth.FirebaseAuthManager
@@ -52,8 +51,6 @@ class ProfconqApplication : Application() {
     val dictionarySyncService: DictionarySyncService by lazy {
         DictionarySyncService(repository, profconqApiClient, billingAccounts)
     }
-
-    val profconqAdminSession: ProfconqAdminSession by lazy { ProfconqAdminSession() }
 
     /** Which account the entitlement state belongs to. In memory only, never a Play account id. */
     val billingAccounts: com.profconq.app.billing.BillingAccountCoordinator by lazy {

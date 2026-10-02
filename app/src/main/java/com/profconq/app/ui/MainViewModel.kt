@@ -9,7 +9,6 @@ import com.profconq.app.api.AccountInfo
 import com.profconq.app.api.AccountReadGuard
 import com.profconq.app.api.DictionarySyncService
 import com.profconq.app.api.MirrorSyncResult
-import com.profconq.app.api.ProfconqAdminSession
 import com.profconq.app.api.ProfconqApiException
 import com.profconq.app.api.ProfconqSessionAuth
 import com.profconq.app.api.SyncPrimary
@@ -107,7 +106,6 @@ class MainViewModel(
     private val repository: ProfconqRepository,
     private val authManager: FirebaseAuthManager,
     private val dictionarySyncService: DictionarySyncService,
-    private val adminSession: ProfconqAdminSession,
     private val sessionAuth: ProfconqSessionAuth,
     private val onSignOutCleanup: () -> Unit = {},
     private val onAccountDataWiped: () -> Unit = {},
@@ -136,13 +134,6 @@ class MainViewModel(
     val promoBusy: StateFlow<Boolean> = _promoBusy.asStateFlow()
     private val _promoMessage = MutableStateFlow<String?>(null)
     val promoMessage: StateFlow<String?> = _promoMessage.asStateFlow()
-    private val _adminUsername = MutableStateFlow<String?>(null)
-    val adminUsername: StateFlow<String?> = _adminUsername.asStateFlow()
-    private val _adminBusy = MutableStateFlow(false)
-    val adminBusy: StateFlow<Boolean> = _adminBusy.asStateFlow()
-    private val _adminError = MutableStateFlow<String?>(null)
-    val adminError: StateFlow<String?> = _adminError.asStateFlow()
-
     /** The signed-in account is not the one the device's learning data belongs to. */
     private val _accountSwitchPending = MutableStateFlow(false)
     val accountSwitchPending: StateFlow<Boolean> = _accountSwitchPending.asStateFlow()
@@ -156,7 +147,6 @@ class MainViewModel(
             )
             _syncPrimary.value = dictionarySyncService.getSyncPrimary()
             _syncMerge.value = dictionarySyncService.getSyncMerge()
-            _adminUsername.value = adminSession.currentUsername()
             restoreSiteSession()
         }
         authManager.authUser
@@ -402,7 +392,7 @@ class MainViewModel(
                 }
                 .onFailure { error ->
                     _authError.value = when (error) {
-                        is ProfconqApiException.InvalidCredentials -> uiStrings().profileAdminInvalidCredentials
+                        is ProfconqApiException.InvalidCredentials -> uiStrings().authInvalidCredentials
                         is ProfconqApiException.EmailNotVerified -> error.message
                         else -> error.message ?: uiStrings().googleSignInFailed(-1)
                     }
@@ -476,35 +466,6 @@ class MainViewModel(
 
     fun clearPromoMessage() {
         _promoMessage.value = null
-    }
-
-    fun clearAdminError() {
-        _adminError.value = null
-    }
-
-    fun signInAdmin(username: String, password: String) {
-        viewModelScope.launch {
-            _adminBusy.value = true
-            _adminError.value = null
-            adminSession.login(username, password)
-                .onSuccess { name -> _adminUsername.value = name }
-                .onFailure {
-                    _adminError.value = when (it.message) {
-                        "invalid_credentials" -> uiStrings().profileAdminInvalidCredentials
-                        else -> uiStrings().profileAdminErrorGeneric
-                    }
-                }
-            _adminBusy.value = false
-        }
-    }
-
-    fun signOutAdmin() {
-        viewModelScope.launch {
-            _adminBusy.value = true
-            adminSession.logout()
-            _adminUsername.value = null
-            _adminBusy.value = false
-        }
     }
 
     fun redeemPromoCode(code: String) {
@@ -659,7 +620,6 @@ class MainViewModelFactory(
     private val repository: ProfconqRepository,
     private val authManager: FirebaseAuthManager,
     private val dictionarySyncService: DictionarySyncService,
-    private val adminSession: ProfconqAdminSession,
     private val sessionAuth: ProfconqSessionAuth,
     private val onSignOutCleanup: () -> Unit = {},
     private val onAccountDataWiped: () -> Unit = {},
@@ -671,7 +631,6 @@ class MainViewModelFactory(
                 repository,
                 authManager,
                 dictionarySyncService,
-                adminSession,
                 sessionAuth,
                 onSignOutCleanup,
                 onAccountDataWiped,

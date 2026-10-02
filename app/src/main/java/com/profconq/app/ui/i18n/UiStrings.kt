@@ -2344,66 +2344,11 @@ class UiStrings(private val language: AppLanguage) {
             AppLanguage.PT -> "Não foi possível aplicar o código"
         }
 
-    val profileAdminSection: String
-        get() = when (language) {
-            AppLanguage.RU -> "Админ"
-            AppLanguage.EN -> "Admin"
-            AppLanguage.PT -> "Admin"
-        }
-
-    val profileAdminHint: String
-        get() = when (language) {
-            AppLanguage.RU -> "Вход для управления промокодами на profconq.com"
-            AppLanguage.EN -> "Sign in to manage promo codes on profconq.com"
-            AppLanguage.PT -> "Entrada para gerir códigos promocionais no profconq.com"
-        }
-
-    val profileAdminLogin: String
-        get() = when (language) {
-            AppLanguage.RU -> "Логин"
-            AppLanguage.EN -> "Login"
-            AppLanguage.PT -> "Utilizador"
-        }
-
-    val profileAdminPassword: String
-        get() = when (language) {
-            AppLanguage.RU -> "Пароль"
-            AppLanguage.EN -> "Password"
-            AppLanguage.PT -> "Palavra-passe"
-        }
-
-    val profileAdminSignIn: String
-        get() = when (language) {
-            AppLanguage.RU -> "Войти как админ"
-            AppLanguage.EN -> "Sign in as admin"
-            AppLanguage.PT -> "Entrar como admin"
-        }
-
-    val profileAdminSignOut: String
-        get() = when (language) {
-            AppLanguage.RU -> "Выйти из админки"
-            AppLanguage.EN -> "Sign out of admin"
-            AppLanguage.PT -> "Sair do admin"
-        }
-
-    fun profileAdminSignedInAs(username: String): String = when (language) {
-        AppLanguage.RU -> "Админ: $username"
-        AppLanguage.EN -> "Admin: $username"
-        AppLanguage.PT -> "Admin: $username"
-    }
-
-    val profileAdminInvalidCredentials: String
+    val authInvalidCredentials: String
         get() = when (language) {
             AppLanguage.RU -> "Неверный логин или пароль"
             AppLanguage.EN -> "Invalid login or password"
             AppLanguage.PT -> "Utilizador ou palavra-passe inválidos"
-        }
-
-    val profileAdminErrorGeneric: String
-        get() = when (language) {
-            AppLanguage.RU -> "Не удалось войти. Проверьте сеть."
-            AppLanguage.EN -> "Could not sign in. Check your connection."
-            AppLanguage.PT -> "Não foi possível entrar. Verifique a rede."
         }
 
     val profileStatsSection: String

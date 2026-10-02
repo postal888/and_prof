@@ -39,7 +39,6 @@ class MainActivity : ComponentActivity() {
             app.repository,
             app.authManager,
             app.dictionarySyncService,
-            app.profconqAdminSession,
             app.profconqSessionAuth,
             onSignOutCleanup = { app.profconqSessionAuth.clearSession() },
             onAccountDataWiped = { com.profconq.app.studio.StudioStore(app).clearCollections() },
