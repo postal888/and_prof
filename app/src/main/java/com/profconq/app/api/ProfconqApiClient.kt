@@ -18,6 +18,8 @@ object ProfconqApiConfig {
 data class VocabularyPushResult(
     val wordCount: Int,
     val wordLimit: Int = WordLimitPolicy.FREE_LIMIT,
+    /** The server kept its own, much larger vocabulary instead of this push (shrink guard). */
+    val refused: Boolean = false,
 )
 
 /**
@@ -505,8 +507,9 @@ class ProfconqApiClient(
         if (code !in 200..299) throw ProfconqApiException.HttpError(code, body)
         val json = runCatching { JSONObject(body) }.getOrNull()
         return VocabularyPushResult(
-            wordCount = json?.optInt("wordCount") ?: localCount,
+            wordCount = json?.takeIf { it.has("wordCount") }?.optInt("wordCount") ?: localCount,
             wordLimit = json?.optInt("wordLimit") ?: WordLimitPolicy.FREE_LIMIT,
+            refused = json?.optString("ignored").orEmpty().isNotEmpty(),
         )
     }
 }

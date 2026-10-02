@@ -17,7 +17,10 @@ import com.profconq.app.api.profileOf
 import com.profconq.app.auth.AuthUser
 import com.profconq.app.auth.FirebaseAuthManager
 import com.profconq.app.billing.PremiumStatus
+import com.profconq.app.data.DataOwnership
 import com.profconq.app.data.WordLimitPolicy
+import com.profconq.app.data.accountDataOwnerOf
+import com.profconq.app.data.dataOwnershipOf
 import com.profconq.app.data.model.AppSettings
 import com.profconq.app.data.model.AppThemeMode
 import com.profconq.app.data.model.Collection
@@ -88,8 +91,11 @@ internal class WordLimitProjectionState {
         publishResolved()
     }
 
+    // The account route may grant Premium past a free billing answer (see EntitlementLedger), and
+    // the composer then has no cap, so the profile cannot show the free limit for it either.
     private fun publishResolved() {
         _value.value = when {
+            account == WordLimitProjection.Unlimited -> account
             billing != WordLimitProjection.Unknown -> billing
             account != WordLimitProjection.Unknown -> account
             else -> persisted
@@ -104,6 +110,7 @@ class MainViewModel(
     private val adminSession: ProfconqAdminSession,
     private val sessionAuth: ProfconqSessionAuth,
     private val onSignOutCleanup: () -> Unit = {},
+    private val onAccountDataWiped: () -> Unit = {},
 ) : ViewModel() {
     val authUser: StateFlow<AuthUser?> = authManager.authUser
     private val _authBusy = MutableStateFlow(false)
@@ -120,6 +127,9 @@ class MainViewModel(
     val syncMessage: StateFlow<String?> = _syncMessage.asStateFlow()
     private val _syncPrimary = MutableStateFlow(SyncPrimary.APP)
     val syncPrimary: StateFlow<SyncPrimary> = _syncPrimary.asStateFlow()
+
+    private val _syncMerge = MutableStateFlow(false)
+    val syncMerge: StateFlow<Boolean> = _syncMerge.asStateFlow()
     private val _wordLimitMessage = MutableStateFlow<String?>(null)
     val wordLimitMessage: StateFlow<String?> = _wordLimitMessage.asStateFlow()
     private val _promoBusy = MutableStateFlow(false)
@@ -133,28 +143,77 @@ class MainViewModel(
     private val _adminError = MutableStateFlow<String?>(null)
     val adminError: StateFlow<String?> = _adminError.asStateFlow()
 
+    /** The signed-in account is not the one the device's learning data belongs to. */
+    private val _accountSwitchPending = MutableStateFlow(false)
+    val accountSwitchPending: StateFlow<Boolean> = _accountSwitchPending.asStateFlow()
+    private val _accountSwitchBusy = MutableStateFlow(false)
+    val accountSwitchBusy: StateFlow<Boolean> = _accountSwitchBusy.asStateFlow()
+
     init {
         viewModelScope.launch {
             wordLimitProjectionState.restorePersistedPremium(
                 dictionarySyncService.isEntitledPremium()
             )
             _syncPrimary.value = dictionarySyncService.getSyncPrimary()
+            _syncMerge.value = dictionarySyncService.getSyncMerge()
             _adminUsername.value = adminSession.currentUsername()
             restoreSiteSession()
         }
         authManager.authUser
             .onEach { user ->
                 if (user != null) {
+                    claimLocalData(user)
                     refreshCloudAccount()
                 } else {
                     _cloudAccount.value = null
+                    _accountSwitchPending.value = false
                 }
             }
             .launchIn(viewModelScope)
     }
 
+    private suspend fun claimLocalData(user: AuthUser) {
+        val owner = accountDataOwnerOf(user)
+        when (dataOwnershipOf(repository.getDataOwner(), owner)) {
+            DataOwnership.Adopt -> repository.setDataOwner(owner)
+            DataOwnership.Same -> _accountSwitchPending.value = false
+            DataOwnership.Foreign -> _accountSwitchPending.value = true
+        }
+    }
+
+    /** Replaces another account's learning data on this device with the signed-in account's own. */
+    fun confirmAccountSwitch() {
+        val user = authManager.authUser.value ?: return
+        if (_accountSwitchBusy.value) return
+        viewModelScope.launch {
+            _accountSwitchBusy.value = true
+            repository.wipeAccountData()
+            onAccountDataWiped()
+            repository.setDataOwner(accountDataOwnerOf(user))
+            _accountSwitchPending.value = false
+            _syncBusy.value = true
+            _syncMessage.value = null
+            runCatching { dictionarySyncService.mirrorSync(user, SyncPrimary.SITE) }
+                .onSuccess { result ->
+                    publishCloudAccount(result.account)
+                    _syncMessage.value = formatMirrorSyncMessage(result)
+                }
+                .onFailure { error -> _syncMessage.value = mapSyncError(error) }
+            _syncBusy.value = false
+            _accountSwitchBusy.value = false
+        }
+    }
+
+    /** Leaves the device's data untouched by signing the other account back out. */
+    fun declineAccountSwitch() {
+        _accountSwitchPending.value = false
+        signOut()
+    }
+
     fun publishBillingStatus(status: PremiumStatus) {
         wordLimitProjectionState.publishBillingStatus(status)
+        // The profile line's plan and word count come from /me, which a purchase also changes.
+        if (status == PremiumStatus.Active) refreshCloudAccount()
     }
 
     val collections: StateFlow<List<Collection>> =
@@ -495,6 +554,17 @@ class MainViewModel(
 
     private fun formatMirrorSyncMessage(result: MirrorSyncResult): String {
         val s = uiStrings()
+        result.refusedServerWordCount?.let { serverCount ->
+            return s.syncMirrorRefusedShrink(result.wordCount, serverCount)
+        }
+        result.merge?.let { merge ->
+            return s.syncMergeSuccess(
+                added = merge.addedToApp,
+                updated = merge.updatedInApp,
+                sent = merge.sentToSite,
+                total = result.wordCount,
+            )
+        }
         return when (result.primary) {
             SyncPrimary.APP -> s.syncMirrorSuccessApp(result.wordCount, result.programCount)
             SyncPrimary.SITE -> s.syncMirrorSuccessSite(result.wordCount, result.programCount)
@@ -533,16 +603,23 @@ class MainViewModel(
         viewModelScope.launch { dictionarySyncService.setSyncPrimary(primary) }
     }
 
+    fun setSyncMerge(merge: Boolean) {
+        _syncMerge.value = merge
+        viewModelScope.launch { dictionarySyncService.setSyncMerge(merge) }
+    }
+
     fun runCloudMirrorSync() {
         if (authManager.authUser.value == null) {
             _syncMessage.value = uiStrings().syncSignInFirst
             return
         }
+        if (_accountSwitchPending.value) return
         val primary = _syncPrimary.value
+        val merge = _syncMerge.value
         viewModelScope.launch {
             _syncBusy.value = true
             _syncMessage.value = null
-            runCatching { dictionarySyncService.mirrorSync(authUser.value, primary) }
+            runCatching { dictionarySyncService.mirrorSync(authUser.value, primary, merge) }
                 .onSuccess { result ->
                     publishCloudAccount(result.account)
                     _wordLimitMessage.value = null
@@ -585,6 +662,7 @@ class MainViewModelFactory(
     private val adminSession: ProfconqAdminSession,
     private val sessionAuth: ProfconqSessionAuth,
     private val onSignOutCleanup: () -> Unit = {},
+    private val onAccountDataWiped: () -> Unit = {},
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -596,6 +674,7 @@ class MainViewModelFactory(
                 adminSession,
                 sessionAuth,
                 onSignOutCleanup,
+                onAccountDataWiped,
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")

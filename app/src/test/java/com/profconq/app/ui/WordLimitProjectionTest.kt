@@ -107,6 +107,20 @@ class WordLimitProjectionTest {
     }
 
     @Test
+    fun premiumAccountIsNotCappedByFreeBillingAnswer() {
+        val state = WordLimitProjectionState()
+        state.publishBillingStatus(PremiumStatus.Free)
+
+        state.publish(
+            Result.success(
+                account(isPremium = true, wordLimit = WordLimitPolicy.UNLIMITED)
+            )
+        )
+
+        assertEquals(WordLimitProjection.Unlimited, state.value.value)
+    }
+
+    @Test
     fun processRecreationUsesPersistedEntitlement() {
         val recreated = WordLimitProjectionState()
 

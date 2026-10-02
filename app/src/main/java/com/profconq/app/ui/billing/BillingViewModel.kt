@@ -29,6 +29,8 @@ import com.profconq.app.billing.billingNoticeOfResponseCode
 import com.profconq.app.billing.buyLockOf
 import com.profconq.app.billing.launchFollowUpOf
 import com.profconq.app.billing.runCatalogueLoad
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,6 +73,8 @@ class BillingViewModel(
     /** Play is asked by one caller at a time: a purchase re-read must not run beside a plans load. */
     private val playMutex = Mutex()
 
+    private var statusPoll: Job? = null
+
     init {
         viewModelScope.launch {
             verifier.outcomes.collect { outcome -> applyOutcome(outcome) }
@@ -80,8 +84,10 @@ class BillingViewModel(
                 when {
                     purchase.isPending -> _state.update { it.copy(status = PremiumStatus.Pending) }
                     // Verifying is a progress hint only: Play's state never grants access here.
-                    purchase.isPurchased && signedIn() ->
+                    purchase.isPurchased && signedIn() -> {
                         _state.update { it.copy(status = PremiumStatus.Verifying) }
+                        pollStatusAfterPurchase()
+                    }
                 }
             }
         }
@@ -105,6 +111,7 @@ class BillingViewModel(
      * including the first frame, which makes it the one deterministic initial trigger.
      */
     fun onAccountChanged(uid: String?) {
+        statusPoll?.cancel()
         viewModelScope.launch {
             val at = verifier.onAccountChanged(uid)
             val signed = uid != null
@@ -133,6 +140,12 @@ class BillingViewModel(
      */
     fun retryPlans() {
         requestPlansLoad()
+    }
+
+    /** Re-reads `/status`, e.g. after the user came back from managing the subscription in Play. */
+    fun refreshEntitlement() {
+        if (!signedIn()) return
+        viewModelScope.launch { applyOutcome(verifier.refreshStatus()) }
     }
 
     fun selectPlan(basePlanId: String) {
@@ -348,6 +361,23 @@ class BillingViewModel(
         else -> PremiumStatus.Free
     }
 
+    /**
+     * A verify that failed transiently leaves the status at Verifying with nothing left to move it,
+     * while the server may already hold the entitlement. A few spaced `/status` reads settle it
+     * without waiting for the next manual sync.
+     */
+    private fun pollStatusAfterPurchase() {
+        statusPoll?.cancel()
+        statusPoll = viewModelScope.launch {
+            for (waitMs in PostPurchasePollDelaysMs) {
+                delay(waitMs)
+                val status = _state.value.status
+                if (status == PremiumStatus.Active || status == PremiumStatus.Stale) return@launch
+                applyOutcome(verifier.refreshStatus())
+            }
+        }
+    }
+
     private fun markUnavailable() {
         _state.update {
             if (it.status == PremiumStatus.Loading) it.copy(status = PremiumStatus.Unavailable) else it
@@ -365,6 +395,8 @@ class BillingViewModel(
         else -> BillingNotice.Generic
     }
 }
+
+private val PostPurchasePollDelaysMs = longArrayOf(4_000L, 10_000L, 30_000L)
 
 class BillingViewModelFactory(
     private val billing: BillingRepository,

@@ -76,7 +76,8 @@ interface CollectionDao {
             audio_labels = :audioLabelsJson,
             image_url = :imageUrl, part_of_speech = :partOfSpeech, ipa = :ipa,
             source_title = :sourceTitle, chapter_or_tag = :chapterOrTag,
-            example_translation = :exampleTranslation, is_favorite = :isFavorite
+            example_translation = :exampleTranslation, is_favorite = :isFavorite,
+            updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
         WHERE id = :cardId
         """,
     )
@@ -97,6 +98,10 @@ interface CollectionDao {
         exampleTranslation: String? = null,
         isFavorite: Boolean = false,
     )
+
+    /** Carries a merged word's own edit time over, instead of the time it was applied here. */
+    @Query("UPDATE cards SET updated_at = :updatedAt WHERE id = :cardId")
+    suspend fun setCardUpdatedAt(cardId: String, updatedAt: Long)
 
     @Query("UPDATE cards SET is_favorite = :isFavorite WHERE id = :cardId")
     suspend fun updateCardFavorite(cardId: String, isFavorite: Boolean)

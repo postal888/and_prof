@@ -133,6 +133,8 @@ fun ProfileScreen(
     onRedeemPromoCode: (String) -> Unit = {},
     onClearPromoMessage: () -> Unit = {},
     onSyncPrimaryChange: (SyncPrimary) -> Unit,
+    syncMerge: Boolean,
+    onSyncMergeChange: (Boolean) -> Unit,
     onCreateGoogleSignInIntent: () -> Intent?,
     onGoogleSignInResult: (Intent?) -> Unit,
     onSignInWithEmail: (String, String) -> Unit,
@@ -318,7 +320,7 @@ fun ProfileScreen(
                     )
                     MutedText(strings.profileSyncCloudHint)
                 } else {
-                    MutedText(strings.profileSyncMirrorHint)
+                    if (!syncMerge) MutedText(strings.profileSyncMirrorHint)
                     SyncPrimaryToggle(
                         selected = syncPrimary,
                         onSelect = onSyncPrimaryChange,
@@ -329,6 +331,13 @@ fun ProfileScreen(
                     MutedText(
                         if (syncPrimary == SyncPrimary.APP) strings.profileSyncPrimaryAppHint
                         else strings.profileSyncPrimarySiteHint,
+                    )
+                    ProfileToggleRow(
+                        title = strings.profileSyncMergeTitle,
+                        description = if (syncMerge) strings.profileSyncMergeOnHint
+                        else strings.profileSyncMergeOffHint,
+                        checked = syncMerge,
+                        onCheckedChange = { if (!syncBusy && !authBusy) onSyncMergeChange(it) },
                     )
                     GradientPrimaryButton(
                         text = if (syncBusy) strings.profileAuthLoading else strings.profileSyncMirror,

@@ -343,7 +343,11 @@ class ReaderViewModel(
         val word = _state.value.selectedWord ?: return
         if (word.isPhrase && !_state.value.phraseCopyEnabled) return
         val ru = word.ru?.trim().orEmpty()
-        if (ru.isEmpty() || word.isAdded) return
+        if (word.isAdded) return
+        if (ru.isEmpty()) {
+            viewModelScope.launch { runCatching { repository.checkCanAddNewWord(word.pt) } }
+            return
+        }
 
         val bookId = _state.value.activeBookId ?: return
 
@@ -364,6 +368,8 @@ class ReaderViewModel(
                         addToast = strings().wordAddedToDictionary(word.pt),
                     )
                 }
+            } catch (e: com.profconq.app.data.WordLimitReachedException) {
+                // The app-wide Premium prompt answers this one.
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.message ?: strings().ytAddToDictionaryFailed) }
             }

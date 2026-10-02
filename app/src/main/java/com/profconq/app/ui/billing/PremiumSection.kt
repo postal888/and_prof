@@ -1,6 +1,19 @@
 package com.profconq.app.ui.billing
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.profconq.app.billing.BillingContract
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -82,9 +95,24 @@ fun PremiumSection(
     onPurchaseScreenGone: () -> Unit,
     onRetryPlans: () -> Unit,
     modifier: Modifier = Modifier,
+    onReturnFromPlayStore: () -> Unit = {},
 ) {
     val strings = LocalUiStrings.current
-    val activity = LocalContext.current as? Activity
+    val context = LocalContext.current
+    val activity = context as? Activity
+    // Cancelling happens in Play, outside the app; the status is re-read once the user is back.
+    var openedPlayStore by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && openedPlayStore) {
+                openedPlayStore = false
+                onReturnFromPlayStore()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // The gate the last server answer supports: an entitlement that waits for a re-check is not a
     // shelf to buy from, and the plan rows say so instead of looking free to pick.
     val gate = state.entitlementGate
@@ -205,8 +233,43 @@ fun PremiumSection(
                 enabled = signedIn && !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             )
+            val subscribed = state.status == PremiumStatus.Active ||
+                state.status == PremiumStatus.Stale ||
+                gate == EntitlementGate.Active
+            if (subscribed) {
+                GlassOutlineButton(
+                    text = strings.premiumManageSubscription,
+                    onClick = {
+                        if (openPlaySubscription(context)) {
+                            openedPlayStore = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                MutedText(strings.premiumManageSubscriptionHint)
+            }
         }
     }
+}
+
+/**
+ * Play owns cancellation: an app may only send the user to the subscription's own page there.
+ * Falls back to the web page when the Play Store app cannot take the link.
+ */
+private fun openPlaySubscription(context: Context): Boolean {
+    val url = "https://play.google.com/store/account/subscriptions" +
+        "?sku=${BillingContract.PREMIUM_PRODUCT_ID}&package=${context.packageName}"
+    val playIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.android.vending")
+    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    for (intent in listOf(playIntent, webIntent)) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return true
+        } catch (_: ActivityNotFoundException) {
+            continue
+        }
+    }
+    return false
 }
 
 /**

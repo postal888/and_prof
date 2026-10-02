@@ -15,6 +15,15 @@ class StudioStore(context: Context) {
             .apply()
     }
 
+    /** Drops the collections and their website ids; voice and timing preferences stay. */
+    fun clearCollections() {
+        prefs.edit()
+            .remove(KEY_COLLECTIONS)
+            .remove(KEY_ACTIVE)
+            .remove(KEY_WEB_ID_MAP)
+            .apply()
+    }
+
     fun activeCollectionId(): String? =
         prefs.getString(KEY_ACTIVE, null)?.takeIf { it.isNotBlank() }
 

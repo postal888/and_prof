@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.profconq.app.data.model.AppThemeMode
 import com.profconq.app.data.repository.ProfconqRepository
+import com.profconq.app.data.repository.WordNormalizer
 import com.profconq.app.ui.components.FloatingNowPlayingOverlay
 import com.profconq.app.ui.components.PortBottomNav
 import com.profconq.app.ui.components.portScreenBackground
@@ -105,19 +106,23 @@ fun ProfconqApp(
     val syncBusy by viewModel.syncBusy.collectAsState()
     val syncMessage by viewModel.syncMessage.collectAsState()
     val syncPrimary by viewModel.syncPrimary.collectAsState()
+    val syncMerge by viewModel.syncMerge.collectAsState()
     val wordLimitMessage by viewModel.wordLimitMessage.collectAsState()
     val promoBusy by viewModel.promoBusy.collectAsState()
     val promoMessage by viewModel.promoMessage.collectAsState()
     val adminUsername by viewModel.adminUsername.collectAsState()
     val adminBusy by viewModel.adminBusy.collectAsState()
     val adminError by viewModel.adminError.collectAsState()
+    val accountSwitchPending by viewModel.accountSwitchPending.collectAsState()
+    val accountSwitchBusy by viewModel.accountSwitchBusy.collectAsState()
     val vocabularyWordCount = remember(collections, dictionary) {
-        val ids = linkedSetOf<String>()
-        collections.forEach { collection ->
-            collection.cards.forEach { ids.add(it.id) }
-        }
-        dictionary.forEach { entry -> ids.add(entry.id) }
-        ids.size
+        val words = hashSetOf<String>()
+        collections
+            .filter { it.sourceType != "studio-demo" }
+            .forEach { collection ->
+                collection.cards.forEach { words.add(WordNormalizer.normalize(it.pt)) }
+            }
+        words.size
     }
 
     val editorCollection = editorCollectionId?.let { id -> collections.find { it.id == id } }
@@ -172,6 +177,26 @@ fun ProfconqApp(
         // another has to drop the previous one's entitlement before anything is read again.
         androidx.compose.runtime.LaunchedEffect(authUser?.uid) {
             billingViewModel.onAccountChanged(authUser?.uid)
+        }
+        val wordLimitHit by com.profconq.app.data.WordLimitEvents.reached.collectAsState()
+        wordLimitHit?.let { hit ->
+            WordLimitDialog(
+                limit = hit.limit,
+                signedIn = authUser != null,
+                onUpgrade = {
+                    com.profconq.app.data.WordLimitEvents.consume()
+                    com.profconq.app.ui.navigation.TabOpenHub.request(MainTab.Profile)
+                },
+                onDismiss = { com.profconq.app.data.WordLimitEvents.consume() },
+            )
+        }
+        if (accountSwitchPending) {
+            AccountSwitchDialog(
+                email = authUser?.email,
+                busy = accountSwitchBusy,
+                onReplace = viewModel::confirmAccountSwitch,
+                onSignOut = viewModel::declineAccountSwitch,
+            )
         }
         val studioNowPlaying by com.profconq.app.studio.StudioNowPlayingHub.state.collectAsState()
         val openStudioTab by com.profconq.app.studio.StudioNowPlayingHub.openStudio.collectAsState()
@@ -536,6 +561,8 @@ fun ProfconqApp(
                     onRedeemPromoCode = viewModel::redeemPromoCode,
                     onClearPromoMessage = viewModel::clearPromoMessage,
                     onSyncPrimaryChange = viewModel::setSyncPrimary,
+                    syncMerge = syncMerge,
+                    onSyncMergeChange = viewModel::setSyncMerge,
                     onCreateGoogleSignInIntent = viewModel::createGoogleSignInIntent,
                     onGoogleSignInResult = viewModel::handleGoogleSignInResult,
                     onSignInWithEmail = viewModel::signInWithEmail,
@@ -559,6 +586,7 @@ fun ProfconqApp(
                             onClearNotice = billingViewModel::clearNotice,
                             onPurchaseScreenGone = billingViewModel::onPurchaseScreenGone,
                             onRetryPlans = billingViewModel::retryPlans,
+                            onReturnFromPlayStore = billingViewModel::refreshEntitlement,
                         )
                     },
                     modifier = Modifier.fillMaxSize(),

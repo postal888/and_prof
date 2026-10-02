@@ -22,6 +22,8 @@ data class WebVocabWord(
     val learnMark: String = "",
     val videoId: String? = null,
     val videoTitle: String? = null,
+    /** Epoch millis of the last content change; 0 when the side that wrote it did not record one. */
+    val updatedAt: Long = 0L,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -39,6 +41,7 @@ data class WebVocabWord(
         .put("learnMark", learnMark)
         .put("videoId", videoId)
         .put("videoTitle", videoTitle)
+        .apply { if (updatedAt > 0) put("updatedAt", updatedAt) }
 
     companion object {
         fun fromJson(json: JSONObject): WebVocabWord? {
@@ -65,6 +68,8 @@ data class WebVocabWord(
                 learnMark = json.optString("learnMark", ""),
                 videoId = json.optString("videoId").takeIf { it.isNotBlank() },
                 videoTitle = json.optString("videoTitle").takeIf { it.isNotBlank() },
+                updatedAt = json.optLong("updatedAt", 0L).takeIf { it > 0 }
+                    ?: json.optLong("updated_at", 0L),
             )
         }
 

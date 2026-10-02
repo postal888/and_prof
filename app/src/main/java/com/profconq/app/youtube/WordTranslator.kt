@@ -46,6 +46,10 @@ class WordTranslator(
         val rawTranslated = if (useChatGpt) {
             try {
                 translateViaChatGpt(trimmed, from, to, isSingleWord)
+            } catch (_: TranslationException.WordLimit) {
+                // The server refuses ChatGPT to a free account past its limit. Reading a word still
+                // deserves a translation; saving it is where the limit is enforced and explained.
+                translateViaMyMemory(trimmed, from, to)
             } catch (error: TranslationException) {
                 throw error
             } catch (error: ProfconqApiException) {

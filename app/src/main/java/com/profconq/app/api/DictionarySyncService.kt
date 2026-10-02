@@ -144,7 +144,14 @@ class DictionarySyncService(
      * Run mirror sync for the selected primary source.
      * APP → cloud (+form for site); SITE → device.
      */
-    suspend fun mirrorSync(authUser: AuthUser?, primary: SyncPrimary): MirrorSyncResult {
+    suspend fun getSyncMerge(): Boolean = repository.getSyncMerge()
+
+    suspend fun setSyncMerge(merge: Boolean) {
+        repository.setSyncMerge(merge)
+    }
+
+    suspend fun mirrorSync(authUser: AuthUser?, primary: SyncPrimary, merge: Boolean = false): MirrorSyncResult {
+        if (merge) return mergeSync(authUser, primary)
         return when (primary) {
             SyncPrimary.APP -> mirrorPushToCloud(authUser)
             SyncPrimary.SITE -> mirrorPullFromCloud(authUser)
@@ -153,16 +160,50 @@ class DictionarySyncService(
 
     private suspend fun mirrorPushToCloud(authUser: AuthUser?): MirrorSyncResult {
         val words = repository.buildWebVocabularyWords()
-        apiClient.pushVocabulary(words)
+        val pushed = apiClient.pushVocabulary(words)
+        if (pushed.refused) {
+            // The server kept its larger vocabulary, so the programs and progress that belong to it
+            // stay too: overwriting them with this device's sets would orphan the site's word ids.
+            val account = refreshAccount(authUser)
+            return MirrorSyncResult(
+                account = account,
+                primary = SyncPrimary.APP,
+                wordCount = words.size,
+                programCount = 0,
+                refusedServerWordCount = pushed.wordCount,
+            )
+        }
         val programs = repository.exportProgramsForWebsite(words)
         apiClient.pushSyncJson("programs", programs)
         apiClient.pushSyncJson("program_progress", JSONObject())
         val account = refreshAccount(authUser)
         return MirrorSyncResult(
-            account = account.copy(wordCount = words.size),
+            account = account,
             primary = SyncPrimary.APP,
             wordCount = words.size,
             programCount = programs.length(),
+        )
+    }
+
+    /**
+     * Both sides end up with every word either had; for a word on both, the later edit wins and
+     * the chosen source breaks ties. Programs and their progress are left alone: they belong to the
+     * website and only the full mirror replaces them.
+     */
+    private suspend fun mergeSync(authUser: AuthUser?, primary: SyncPrimary): MirrorSyncResult {
+        // Earlier app versions uploaded Studio's sample cards; they are not the user's words.
+        val server = apiClient.pullVocabulary().filter { it.videoId != STUDIO_DEMO_FOLDER_ID }
+        val local = repository.buildWebVocabularyWords()
+        val result = mergeVocabulary(local, server, preferLocalOnTie = primary == SyncPrimary.APP)
+        repository.applyMergedServerWords(result.applyLocally)
+        apiClient.pushVocabulary(result.merged)
+        val account = refreshAccount(authUser)
+        return MirrorSyncResult(
+            account = account,
+            primary = primary,
+            wordCount = result.merged.size,
+            programCount = 0,
+            merge = result,
         )
     }
 
@@ -182,7 +223,7 @@ class DictionarySyncService(
         }
         val account = refreshAccount(authUser)
         return MirrorSyncResult(
-            account = account.copy(wordCount = words.size),
+            account = account,
             primary = SyncPrimary.SITE,
             wordCount = words.size,
             programCount = programCount,
@@ -195,4 +236,11 @@ data class MirrorSyncResult(
     val primary: SyncPrimary,
     val wordCount: Int,
     val programCount: Int,
+    /** Set when the server refused to replace its vocabulary of this many words with the push. */
+    val refusedServerWordCount: Int? = null,
+    /** Set when the sync merged both sides instead of mirroring one of them. */
+    val merge: VocabularyMergeResult? = null,
 )
+
+/** The folder id the old app gave Studio's sample collection on the website. */
+private const val STUDIO_DEMO_FOLDER_ID = "studio-demo"

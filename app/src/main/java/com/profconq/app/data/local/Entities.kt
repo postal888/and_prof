@@ -53,6 +53,8 @@ data class CardEntity(
     @ColumnInfo(name = "example_translation") val exampleTranslation: String? = null,
     @ColumnInfo(name = "is_favorite") val isFavorite: Boolean = false,
     @ColumnInfo(name = "learn_mark") val learnMark: String? = "1",
+    /** Last change of the word's content, for merge sync; 0 for cards older than the column. */
+    @ColumnInfo(name = "updated_at", defaultValue = "0") val updatedAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(tableName = "dictionary")

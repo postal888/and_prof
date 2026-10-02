@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
         StudySetWordEntity::class,
         ReviewStateEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 abstract class ProfconqDatabase : RoomDatabase() {
@@ -157,6 +157,12 @@ abstract class ProfconqDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE cards ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -243,6 +249,7 @@ abstract class ProfconqDatabase : RoomDatabase() {
                     MIGRATION_11_12,
                     MIGRATION_12_13,
                     MIGRATION_13_14,
+                    MIGRATION_14_15,
                 )
                 .addCallback(SeedCallback())
                 .build()

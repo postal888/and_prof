@@ -47,6 +47,7 @@ import com.profconq.app.api.WebVocabWord
 import org.json.JSONArray
 import org.json.JSONObject
 import com.profconq.app.data.WordLimitPolicy
+import com.profconq.app.data.WordLimitEvents
 import com.profconq.app.data.WordLimitReachedException
 import com.profconq.app.data.model.WordCard
 import com.profconq.app.reader.ReaderDemoBooks
@@ -65,11 +66,15 @@ object WordNormalizer {
             .lowercase()
 }
 
+private const val STUDIO_DEMO_SOURCE_TYPE = "studio-demo"
+
 object SyncKeys {
     const val DICTIONARY_SINCE = "sync.dictionary_since"
     const val IS_PREMIUM = "account.is_premium"
     const val WORD_LIMIT = "account.word_limit"
     const val SYNC_PRIMARY = "sync.primary"
+    const val DATA_OWNER = "account.data_owner"
+    const val SYNC_MERGE = "sync.merge"
 }
 
 object AppSettingsKeys {
@@ -625,12 +630,34 @@ class ProfconqRepository(
     }
 
     suspend fun deleteCollection(collectionId: String) {
+        val pts = collectionDao.getCardsForCollection(collectionId).map { it.pt }
         collectionDao.deleteCollection(collectionId)
+        dropDictionaryRowsWithoutCard(pts)
     }
 
     suspend fun deleteCard(cardId: String) {
+        val pts = collectionDao.getCardsByIds(listOf(cardId)).map { it.pt }
         collectionDao.deleteCard(cardId)
+        dropDictionaryRowsWithoutCard(pts)
     }
+
+    /**
+     * The dictionary table shadows cards and is never shown on its own, so a row whose word no
+     * card holds any more would keep counting toward the limit after the user deleted the word.
+     */
+    private suspend fun dropDictionaryRowsWithoutCard(pts: List<String>) {
+        val gone = pts.map(WordNormalizer::normalize).toSet() - cardWordSet()
+        if (gone.isEmpty()) return
+        for (entry in dictionaryDao.getAll()) {
+            if (WordNormalizer.normalize(entry.pt) in gone) dictionaryDao.deleteById(entry.id)
+        }
+    }
+
+    private suspend fun cardWordSet(): Set<String> =
+        collectionDao.getCollections()
+            .filter { it.sourceType != STUDIO_DEMO_SOURCE_TYPE }
+            .flatMap { collectionDao.getCardsForCollection(it.id) }
+            .mapTo(hashSetOf()) { WordNormalizer.normalize(it.pt) }
 
     suspend fun updateCollectionTitle(collectionId: String, title: String) {
         collectionDao.updateCollectionTitle(collectionId, title.trim())
@@ -1217,6 +1244,28 @@ class ProfconqRepository(
         appStateDao.upsert(AppStateEntity(key = SyncKeys.WORD_LIMIT, intValue = limit))
     }
 
+    /** Digest of the account the local learning data belongs to; null until one has signed in. */
+    suspend fun getDataOwner(): Long? = appStateDao.getLong(SyncKeys.DATA_OWNER)?.takeIf { it != 0L }
+
+    suspend fun setDataOwner(owner: Long) {
+        appStateDao.upsert(AppStateEntity(key = SyncKeys.DATA_OWNER, longValue = owner))
+    }
+
+    /**
+     * Drops everything one account learned on this device: words, sets, review progress, activity
+     * and watch history. Imported books and app settings belong to the device and stay.
+     */
+    suspend fun wipeAccountData() {
+        for (collection in collectionDao.getCollections()) {
+            collectionDao.deleteCollection(collection.id)
+        }
+        dictionaryDao.deleteAll()
+        studySetDao.deleteAllSets()
+        dailyActivityDao.deleteAll()
+        youtubeWatchHistoryDao.deleteAll()
+        appStateDao.deleteKey(SyncKeys.DICTIONARY_SINCE)
+    }
+
     suspend fun resetAccountLimits() {
         setPremiumUser(false)
         setWordLimit(WordLimitPolicy.FREE_LIMIT)
@@ -1225,6 +1274,12 @@ class ProfconqRepository(
     private suspend fun effectiveWordLimit(): Int {
         if (isPremiumUser()) return WordLimitPolicy.UNLIMITED
         return getWordLimit().coerceAtLeast(WordLimitPolicy.FREE_LIMIT)
+    }
+
+    suspend fun getSyncMerge(): Boolean = appStateDao.getInt(SyncKeys.SYNC_MERGE) == 1
+
+    suspend fun setSyncMerge(merge: Boolean) {
+        appStateDao.upsert(AppStateEntity(key = SyncKeys.SYNC_MERGE, intValue = if (merge) 1 else 0))
     }
 
     suspend fun getSyncPrimary(): SyncPrimary =
@@ -1380,7 +1435,7 @@ class ProfconqRepository(
                     id = id,
                     title = "Studio demo",
                     description = "Sample cards from profconq.com",
-                    sourceType = "studio-demo",
+                    sourceType = STUDIO_DEMO_SOURCE_TYPE,
                 ),
             )
         }
@@ -1391,50 +1446,26 @@ class ProfconqRepository(
 
     private suspend fun hasVocabularyWord(normalizedPt: String): Boolean {
         if (normalizedPt.isEmpty()) return false
-        for (collection in collectionDao.getCollections()) {
-            val exists = collectionDao.getCardsForCollection(collection.id)
-                .any { WordNormalizer.normalize(it.pt) == normalizedPt }
-            if (exists) return true
-        }
-        return dictionaryDao.getAll().any { WordNormalizer.normalize(it.pt) == normalizedPt }
+        return normalizedPt in cardWordSet()
     }
 
     suspend fun buildWebVocabularyWords(): List<WebVocabWord> {
         val result = mutableListOf<WebVocabWord>()
+        val seenPts = mutableSetOf<String>()
         var nextId = 1
         val collections = collectionDao.getCollections()
         for (collection in collections) {
+            // Studio's seeded sample cards are not the user's words: they neither count toward the
+            // word limit nor travel to the website vocabulary, where the server counts them too.
+            if (collection.sourceType == STUDIO_DEMO_SOURCE_TYPE) continue
             for (card in collectionDao.getCardsForCollection(collection.id)) {
+                // A word saved into two folders is still one word, for the limit and for the site.
+                if (!seenPts.add(WordNormalizer.normalize(card.pt))) continue
                 result.add(card.toWebVocabWord(collection, nextId++))
             }
         }
-        val collectionById = collections.associateBy { it.id }
-        val collectionByVideoId = collections.mapNotNull { collection ->
-            collection.videoId?.trim()?.takeIf { it.isNotEmpty() }?.let { it to collection }
-        }.toMap()
-        val cardPts = result.map { WordNormalizer.normalize(it.word) }.toSet()
-        for (entry in dictionaryDao.getAll()) {
-            val normalized = WordNormalizer.normalize(entry.pt)
-            if (normalized in cardPts) continue
-            // A dictionary row remembers its folder only as a collection/video id. The title has to
-            // travel with a real id: a row whose only home is the app's catch-all collection must
-            // reach the website with neither, or the "Sync" placeholder name becomes a folder there.
-            val home = listOfNotNull(
-                entry.collectionId?.let { collectionById[it] },
-                entry.videoId?.let { collectionByVideoId[it] },
-            ).firstOrNull { it.syncFolderId() != null }
-            result.add(
-                WebVocabWord(
-                    id = nextId++,
-                    word = entry.pt,
-                    translation = entry.ru,
-                    example = entry.example.orEmpty(),
-                    tag = "geral",
-                    videoId = home?.syncFolderId(),
-                    videoTitle = home?.title,
-                ),
-            )
-        }
+        // Dictionary-table rows are left out: they only shadow cards, and one without a card is a
+        // word the user deleted, which must neither hold a place in the limit nor return to the site.
         return result
     }
 
@@ -1454,6 +1485,52 @@ class ProfconqRepository(
             }
             addWordToSyncedCollection(resolveSyncCollection(folderId, word.videoTitle.orEmpty()), word)
         }
+    }
+
+    /**
+     * Takes over server versions chosen by a merge. A word the device already holds is updated in
+     * place, wherever it lives, so a merge never leaves the same word in two folders; a new one goes
+     * to its website folder. Each card keeps the server's edit time, not the time it arrived here.
+     */
+    suspend fun applyMergedServerWords(words: List<WebVocabWord>) {
+        for (word in words) {
+            val normalized = WordNormalizer.normalize(word.word)
+            if (normalized.isEmpty()) continue
+            val existing = findUserCardByNormalizedPt(normalized)
+            if (existing != null) {
+                collectionDao.updateCardContent(
+                    cardId = existing.id,
+                    pt = word.word.trim(),
+                    ru = word.translation.trim(),
+                    example = word.example.trim().takeIf { it.isNotEmpty() },
+                    imagePath = existing.imagePath,
+                    audioPath = existing.audioPath,
+                    audioPathsJson = existing.audioPaths,
+                    audioLabelsJson = existing.audioLabels,
+                    imageUrl = existing.imageUrl,
+                    partOfSpeech = word.tag.trim().takeIf { it.isNotEmpty() } ?: existing.partOfSpeech,
+                    ipa = existing.ipa,
+                    sourceTitle = existing.sourceTitle,
+                    chapterOrTag = word.infinitivo.trim().takeIf { it.isNotEmpty() } ?: existing.chapterOrTag,
+                    exampleTranslation = word.exampleRu.trim().takeIf { it.isNotEmpty() },
+                    isFavorite = existing.isFavorite,
+                )
+                collectionDao.setCardUpdatedAt(existing.id, word.updatedAt)
+                continue
+            }
+            applyWebVocabularyWords(listOf(word))
+            findUserCardByNormalizedPt(normalized)?.let { collectionDao.setCardUpdatedAt(it.id, word.updatedAt) }
+        }
+    }
+
+    private suspend fun findUserCardByNormalizedPt(normalizedPt: String): CardEntity? {
+        for (collection in collectionDao.getCollections()) {
+            if (collection.sourceType == STUDIO_DEMO_SOURCE_TYPE) continue
+            val card = collectionDao.getCardsForCollection(collection.id)
+                .firstOrNull { WordNormalizer.normalize(it.pt) == normalizedPt }
+            if (card != null) return card
+        }
+        return null
     }
 
     /**
@@ -1641,6 +1718,9 @@ class ProfconqRepository(
         return id
     }
 
+    /** Throws (and raises the Premium prompt) when saving [pt] would pass the free limit. */
+    suspend fun checkCanAddNewWord(pt: String) = ensureCanAddNewWord(pt, enforceLimit = true)
+
     private suspend fun ensureCanAddNewWord(pt: String, enforceLimit: Boolean) {
         if (!enforceLimit || isPremiumUser()) return
         val normalized = WordNormalizer.normalize(pt)
@@ -1648,7 +1728,7 @@ class ProfconqRepository(
         val count = countVocabularyWords()
         val limit = effectiveWordLimit()
         if (count >= limit) {
-            throw WordLimitReachedException(count, limit)
+            throw WordLimitReachedException(count, limit).also(WordLimitEvents::report)
         }
     }
 
@@ -1761,8 +1841,13 @@ class ProfconqRepository(
             videoId = folderId,
             videoTitle = folderId?.let { collection.title },
             learnMark = learnMark.orEmpty(),
+            updatedAt = updatedAt.takeIf { it > 0 } ?: createdAtFromCardId(this.id),
         )
     }
+
+    /** Cards older than `updated_at` still carry their creation time in their id suffix. */
+    private fun createdAtFromCardId(cardId: String): Long =
+        cardId.substringAfterLast('-').toLongOrNull()?.takeIf { it > 1_000_000_000_000L } ?: 0L
 }
 
 /** The app's catch-all collection for synced words that carry no folder of their own. */

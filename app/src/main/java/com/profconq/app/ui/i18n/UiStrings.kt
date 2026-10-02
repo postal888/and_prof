@@ -2234,6 +2234,30 @@ class UiStrings(private val language: AppLanguage) {
             AppLanguage.PT -> "Espelho: vocabulário e programas copiam da fonte escolhida."
         }
 
+    val profileSyncMergeTitle: String
+        get() = when (language) {
+            AppLanguage.RU -> "Объединять записи"
+            AppLanguage.EN -> "Merge entries"
+            AppLanguage.PT -> "Mesclar registros"
+        }
+
+    val profileSyncMergeOnHint: String
+        get() = when (language) {
+            AppLanguage.RU -> "Слова с обеих сторон сохраняются. Если слово есть и там и там — берётся более поздняя правка, " +
+                "при равенстве — выбранный источник. Программы сайта не трогаются."
+            AppLanguage.EN -> "Words from both sides are kept. For a word on both, the later edit wins; " +
+                "on a tie, the selected source. Website programs stay as they are."
+            AppLanguage.PT -> "As palavras dos dois lados são mantidas. Para a mesma palavra vale a edição mais recente; " +
+                "em empate, a fonte escolhida. Os programas do site não mudam."
+        }
+
+    val profileSyncMergeOffHint: String
+        get() = when (language) {
+            AppLanguage.RU -> "Выключено: словарь другой стороны полностью заменяется словарём выбранного источника."
+            AppLanguage.EN -> "Off: the other side's dictionary is fully replaced by the selected source's."
+            AppLanguage.PT -> "Desligado: o dicionário do outro lado é substituído pelo da fonte escolhida."
+        }
+
     val profileSyncPrimaryAppHint: String
         get() = when (language) {
             AppLanguage.RU -> "Телефон → облако → сайт подтянет при синхронизации на profconq.com"
@@ -2642,6 +2666,57 @@ class UiStrings(private val language: AppLanguage) {
         AppLanguage.PT -> "Espelho para nuvem: $words palavras, $programs programas enviados."
     }
 
+    val accountSwitchTitle: String
+        get() = when (language) {
+            AppLanguage.RU -> "На телефоне данные другого аккаунта"
+            AppLanguage.EN -> "This phone holds another account's data"
+            AppLanguage.PT -> "Este telefone tem dados de outra conta"
+        }
+
+    fun accountSwitchMessage(email: String?): String {
+        val who = email?.takeIf { it.isNotBlank() }
+        return when (language) {
+            AppLanguage.RU -> "Слова, наборы и прогресс на телефоне принадлежат другому аккаунту. " +
+                "Чтобы не смешать их с ${who ?: "этим аккаунтом"}, они будут удалены, а затем " +
+                "загрузятся слова этого аккаунта с сайта. Книги и настройки останутся."
+            AppLanguage.EN -> "The words, sets and progress on this phone belong to another account. " +
+                "So they don't get mixed into ${who ?: "this account"}, they will be deleted and this " +
+                "account's words will load from the website. Books and settings stay."
+            AppLanguage.PT -> "As palavras, conjuntos e progresso neste telefone pertencem a outra conta. " +
+                "Para não misturá-los com ${who ?: "esta conta"}, eles serão apagados e as palavras " +
+                "desta conta serão baixadas do site. Livros e configurações ficam."
+        }
+    }
+
+    val accountSwitchReplace: String
+        get() = when (language) {
+            AppLanguage.RU -> "Удалить и загрузить"
+            AppLanguage.EN -> "Delete and load"
+            AppLanguage.PT -> "Apagar e baixar"
+        }
+
+    val accountSwitchSignOut: String
+        get() = when (language) {
+            AppLanguage.RU -> "Выйти"
+            AppLanguage.EN -> "Sign out"
+            AppLanguage.PT -> "Sair"
+        }
+
+    fun syncMirrorRefusedShrink(localWords: Int, serverWords: Int): String = when (language) {
+        AppLanguage.RU -> "Сайт не перезаписан: в приложении $localWords слов, на сайте $serverWords. " +
+            "Слова с сайта загружаются в режиме «Источник: сайт» — он заменит словарь в приложении."
+        AppLanguage.EN -> "Website not overwritten: the app has $localWords words, the website $serverWords. " +
+            "\"Source: website\" downloads them, replacing the app's dictionary."
+        AppLanguage.PT -> "O site não foi substituído: o app tem $localWords palavras, o site $serverWords. " +
+            "\"Fonte: site\" baixa as palavras, substituindo o dicionário do app."
+    }
+
+    fun syncMergeSuccess(added: Int, updated: Int, sent: Int, total: Int): String = when (language) {
+        AppLanguage.RU -> "Объединено: $total слов. С сайта добавлено $added, обновлено $updated; на сайт отправлено $sent."
+        AppLanguage.EN -> "Merged: $total words. From the website $added added, $updated updated; $sent sent to the website."
+        AppLanguage.PT -> "Mesclado: $total palavras. Do site $added adicionadas, $updated atualizadas; $sent enviadas ao site."
+    }
+
     fun syncMirrorSuccessSite(words: Int, programs: Int): String = when (language) {
         AppLanguage.RU -> "Зеркало с сайта: $words слов, $programs программ загружено в приложение."
         AppLanguage.EN -> "Mirror from cloud: $words words, $programs programs downloaded to the app."
@@ -2679,10 +2754,40 @@ class UiStrings(private val language: AppLanguage) {
     }
 
     fun wordLimitMessage(count: Int, limit: Int): String = when (language) {
-        AppLanguage.RU -> "Лимит словаря: $count из $limit слов. Войдите через Google для синхронизации или оформите Premium."
-        AppLanguage.EN -> "Dictionary limit: $count of $limit words. Sign in with Google to sync or upgrade to Premium."
-        AppLanguage.PT -> "Limite do dicionário: $count de $limit palavras. Entre com o Google para sincronizar ou assine Premium."
+        AppLanguage.RU -> "Лимит бесплатной версии: $count из $limit слов. Оформите Premium, чтобы добавлять без ограничений."
+        AppLanguage.EN -> "Free plan limit: $count of $limit words. Get Premium to add words without limits."
+        AppLanguage.PT -> "Limite do plano grátis: $count de $limit palavras. Assine Premium para adicionar sem limites."
     }
+
+    val wordLimitDialogTitle: String
+        get() = when (language) {
+            AppLanguage.RU -> "Лимит бесплатной версии"
+            AppLanguage.EN -> "Free plan limit reached"
+            AppLanguage.PT -> "Limite do plano grátis"
+        }
+
+    fun wordLimitDialogMessage(limit: Int, signedIn: Boolean): String = when (language) {
+        AppLanguage.RU -> "В бесплатной версии можно сохранить до $limit слов. Чтобы добавлять слова без ограничений, " +
+            if (signedIn) "оформите Premium." else "войдите в аккаунт и оформите Premium."
+        AppLanguage.EN -> "The free plan saves up to $limit words. To add words without limits, " +
+            if (signedIn) "get Premium." else "sign in and get Premium."
+        AppLanguage.PT -> "O plano grátis guarda até $limit palavras. Para adicionar sem limites, " +
+            if (signedIn) "assine Premium." else "entre na conta e assine Premium."
+    }
+
+    val wordLimitDialogUpgrade: String
+        get() = when (language) {
+            AppLanguage.RU -> "Оформить Premium"
+            AppLanguage.EN -> "Get Premium"
+            AppLanguage.PT -> "Assinar Premium"
+        }
+
+    val wordLimitDialogLater: String
+        get() = when (language) {
+            AppLanguage.RU -> "Позже"
+            AppLanguage.EN -> "Later"
+            AppLanguage.PT -> "Depois"
+        }
 
     val googleSignInNetwork: String
         get() = when (language) {
@@ -4041,6 +4146,20 @@ class UiStrings(private val language: AppLanguage) {
             AppLanguage.RU -> "Сессия истекла, войдите заново"
             AppLanguage.EN -> "Session expired, sign in again"
             AppLanguage.PT -> "A sessão expirou, entre novamente"
+        }
+
+    val premiumManageSubscription: String
+        get() = when (language) {
+            AppLanguage.RU -> "Управлять подпиской или отменить"
+            AppLanguage.EN -> "Manage or cancel subscription"
+            AppLanguage.PT -> "Gerenciar ou cancelar assinatura"
+        }
+
+    val premiumManageSubscriptionHint: String
+        get() = when (language) {
+            AppLanguage.RU -> "Отмена выполняется в Google Play. Premium останется до конца оплаченного периода."
+            AppLanguage.EN -> "Cancellation happens in Google Play. Premium stays until the end of the paid period."
+            AppLanguage.PT -> "O cancelamento é feito no Google Play. O Premium continua até o fim do período pago."
         }
 
     val premiumNoticeOwnedByOther: String
